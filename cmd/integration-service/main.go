@@ -28,7 +28,7 @@ func main() {
 	pointMapper := influxdb.NewPointMapper()
 	repository := influxdb.NewMeasurementRepository(pointMapper)
 
-	application := app.NewApplication(repository, source)
+	application := app.NewApplication(source, repository)
 
 	healthServer := newHealthServer(":8080")
 	worker := newWorkerLoop(application, 5*time.Second)

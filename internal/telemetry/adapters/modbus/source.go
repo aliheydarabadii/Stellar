@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"stellar/internal/telemetry/app/command"
 	"stellar/internal/telemetry/domain"
 )
 
@@ -19,17 +20,15 @@ func NewSource(mapper *AddressMapper, decoder *Decoder) *Source {
 	}
 }
 
-func (s *Source) Collect(_ context.Context, collectedAt time.Time) ([]domain.Measurement, error) {
+func (s *Source) Read(_ context.Context, collectedAt time.Time) (command.TelemetryReading, error) {
 	_ = s.mapper
 	_ = s.decoder
-
-	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 0, 0, collectedAt)
-	if err != nil {
-		return nil, err
-	}
+	_ = collectedAt
 
 	// TODO: replace with real Modbus polling, decoding, and domain mapping.
-	return []domain.Measurement{
-		measurement,
+	return command.TelemetryReading{
+		AssetID:     domain.DefaultAssetID,
+		Setpoint:    0,
+		ActivePower: 0,
 	}, nil
 }

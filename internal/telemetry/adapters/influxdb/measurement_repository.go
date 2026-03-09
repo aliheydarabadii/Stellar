@@ -16,11 +16,8 @@ func NewMeasurementRepository(mapper *PointMapper) *MeasurementRepository {
 	}
 }
 
-func (r *MeasurementRepository) SaveBatch(_ context.Context, measurements []domain.Measurement) error {
-	for _, measurement := range measurements {
-		_ = r.mapper.Map(measurement)
-	}
-
+func (r *MeasurementRepository) Save(_ context.Context, measurement domain.Measurement) error {
+	_ = r.mapper.Map(measurement)
 	// TODO: replace with real InfluxDB batch persistence.
 	return nil
 }
