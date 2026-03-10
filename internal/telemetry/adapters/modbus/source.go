@@ -236,9 +236,4 @@ func writeAll(w io.Writer, data []byte) error {
 	return nil
 }
 
-// tiny local helper to keep validation readable without importing errors
-func errorsNew(msg string) error {
-	return fmt.Errorf(msg)
-}
-
 var _ command.TelemetrySource = (*Source)(nil)

@@ -11,6 +11,10 @@ import (
 
 var ErrInvalidTelemetry = errors.New("invalid telemetry")
 
+var ErrTelemetrySource = errors.New("telemetry source")
+
+var ErrMeasurementPersistence = errors.New("measurement persistence")
+
 type CollectTelemetry struct {
 	CollectedAt time.Time
 }
@@ -45,7 +49,7 @@ func NewCollectTelemetryHandler(assetID domain.AssetID, source TelemetrySource, 
 func (h CollectTelemetryHandler) Handle(ctx context.Context, cmd CollectTelemetry) error {
 	reading, err := h.source.Read(ctx)
 	if err != nil {
-		return err
+		return errors.Join(ErrTelemetrySource, err)
 	}
 
 	measurement, err := domain.NewMeasurement(
@@ -59,7 +63,7 @@ func (h CollectTelemetryHandler) Handle(ctx context.Context, cmd CollectTelemetr
 	}
 
 	if err := h.repository.Save(ctx, measurement); err != nil {
-		return err
+		return errors.Join(ErrMeasurementPersistence, err)
 	}
 
 	return nil

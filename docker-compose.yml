@@ -23,6 +23,10 @@ services:
       INFLUX_BUCKET: "telemetry"
       INFLUX_LOG_LEVEL: "0"
       INFLUX_WRITE_MODE: "blocking"
+      TRACING_ENABLED: "${TRACING_ENABLED:-false}"
+      TRACING_ENDPOINT: "${TRACING_ENDPOINT:-}"
+      TRACING_INSECURE: "${TRACING_INSECURE:-true}"
+      TRACING_SAMPLE_RATIO: "${TRACING_SAMPLE_RATIO:-1.0}"
       HTTP_PORT: "8080"
     ports:
       - "8080:8080"
@@ -64,6 +68,19 @@ services:
       timeout: 3s
       retries: 10
       start_period: 2s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    depends_on:
+      integration-service:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
     restart: unless-stopped
 
 volumes:

@@ -17,12 +17,13 @@ type HTTPServer interface {
 }
 
 type Server struct {
-	logger *slog.Logger
-	ready  atomic.Bool
-	server *http.Server
+	logger  *slog.Logger
+	metrics *Metrics
+	ready   atomic.Bool
+	server  *http.Server
 }
 
-func NewHTTPServer(addr string, logger *slog.Logger) (*Server, error) {
+func NewHTTPServer(addr string, logger *slog.Logger, metrics *Metrics) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("http server address must not be empty")
 	}
@@ -31,9 +32,14 @@ func NewHTTPServer(addr string, logger *slog.Logger) (*Server, error) {
 		logger = slog.Default()
 	}
 
+	if metrics == nil {
+		metrics = NewMetrics()
+	}
+
 	server := &Server{
-		logger: logger,
-		server: &http.Server{Addr: addr},
+		logger:  logger,
+		metrics: metrics,
+		server:  &http.Server{Addr: addr},
 	}
 	server.server.Handler = server.newMux()
 	server.ready.Store(true)
@@ -91,6 +97,7 @@ func (s *Server) newMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", s.readyz)
+	mux.Handle("/metrics", s.metrics)
 
 	return mux
 }

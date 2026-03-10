@@ -53,7 +53,8 @@ func TestCollectTelemetryHandlerHandle(t *testing.T) {
 		{
 			name:           "source error is returned",
 			sourceErr:      sourceErr,
-			wantErr:        sourceErr,
+			wantErr:        ErrTelemetrySource,
+			wantDomainErr:  sourceErr,
 			wantSavedCount: 0,
 		},
 		{
@@ -63,7 +64,8 @@ func TestCollectTelemetryHandlerHandle(t *testing.T) {
 				ActivePower: 80,
 			},
 			repositoryErr:  repositoryErr,
-			wantErr:        repositoryErr,
+			wantErr:        ErrMeasurementPersistence,
+			wantDomainErr:  repositoryErr,
 			wantSavedCount: 1,
 			wantSavedMeasurement: domain.Measurement{
 				AssetID:     domain.DefaultAssetID,

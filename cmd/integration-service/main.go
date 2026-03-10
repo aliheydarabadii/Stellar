@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"stellar/internal/telemetry/adapters/influxdb"
 	"stellar/internal/telemetry/adapters/modbus"
 	"stellar/internal/telemetry/app"
@@ -23,6 +24,7 @@ import (
 const (
 	serviceName          = "integration-service"
 	defaultInfluxTimeout = 5 * time.Second
+	defaultTraceShutdown = 5 * time.Second
 )
 
 type config struct {
@@ -32,6 +34,7 @@ type config struct {
 	HTTPPort     int
 	Modbus       modbus.Config
 	Influx       influxdb.Config
+	Tracing      ports.TracingConfig
 }
 
 func main() {
@@ -54,13 +57,29 @@ func main() {
 }
 
 func run(ctx context.Context, cfg config, logger *slog.Logger) error {
+	shutdownTracing, err := ports.SetupTracing(ctx, serviceName, cfg.Tracing)
+	if err != nil {
+		return fmt.Errorf("setup tracing: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultTraceShutdown)
+		defer cancel()
+
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			logger.Error("failed to shut down tracing", "error", err)
+		}
+	}()
+
 	addressMapper := modbus.NewAddressMapper()
 	decoder := modbus.NewDecoder()
+	metrics := ports.NewMetrics()
+	tracer := otel.Tracer(serviceName)
 
 	source, err := modbus.NewSource(cfg.Modbus, addressMapper, decoder)
 	if err != nil {
 		return fmt.Errorf("create modbus source: %w", err)
 	}
+	instrumentedSource := ports.InstrumentTelemetrySource(source, metrics, tracer)
 
 	pointMapper := influxdb.NewPointMapperWithAssetType(string(cfg.AssetType))
 	repository, err := influxdb.NewMeasurementRepositoryWithConfig(cfg.Influx, pointMapper)
@@ -68,15 +87,16 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("create influxdb repository: %w", err)
 	}
 	defer repository.Close()
+	instrumentedRepository := ports.InstrumentMeasurementRepository(repository, metrics, tracer)
 
-	application := app.NewApplication(cfg.AssetID, source, repository)
+	application := app.NewApplication(cfg.AssetID, instrumentedSource, instrumentedRepository)
 
-	worker, err := ports.NewTickerWorker(cfg.PollInterval, application.Commands.CollectTelemetry, logger)
+	worker, err := ports.NewTickerWorker(cfg.PollInterval, application.Commands.CollectTelemetry, logger, metrics, tracer)
 	if err != nil {
 		return fmt.Errorf("create worker: %w", err)
 	}
 
-	httpServer, err := ports.NewHTTPServer(httpAddress(cfg.HTTPPort), logger)
+	httpServer, err := ports.NewHTTPServer(httpAddress(cfg.HTTPPort), logger, metrics)
 	if err != nil {
 		return fmt.Errorf("create http server: %w", err)
 	}
@@ -92,6 +112,8 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		"influx_url", cfg.Influx.BaseURL,
 		"influx_log_level", cfg.Influx.LogLevel,
 		"influx_write_mode", string(cfg.Influx.WriteMode),
+		"tracing_enabled", cfg.Tracing.Enabled,
+		"tracing_endpoint", cfg.Tracing.Endpoint,
 	)
 
 	return runComponents(ctx, logger, httpServer, worker)
@@ -238,6 +260,23 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 
+	tracingEnabled, err := optionalBool("TRACING_ENABLED", false)
+	if err != nil {
+		return config{}, err
+	}
+
+	tracingEndpoint := optionalString("TRACING_ENDPOINT")
+
+	tracingInsecure, err := optionalBool("TRACING_INSECURE", true)
+	if err != nil {
+		return config{}, err
+	}
+
+	tracingSampleRatio, err := optionalFloat64("TRACING_SAMPLE_RATIO", 1.0)
+	if err != nil {
+		return config{}, err
+	}
+
 	registerMapping, err := domain.NewRegisterMapping(
 		domain.RegisterType(registerTypeValue),
 		setpointAddress,
@@ -269,6 +308,12 @@ func loadConfig() (config, error) {
 			WriteMode:     influxWriteMode,
 			BatchSize:     influxBatchSize,
 			FlushInterval: influxFlushInterval,
+		},
+		Tracing: ports.TracingConfig{
+			Enabled:     tracingEnabled,
+			Endpoint:    tracingEndpoint,
+			Insecure:    tracingInsecure,
+			SampleRatio: tracingSampleRatio,
 		},
 	}, nil
 }
@@ -405,6 +450,43 @@ func optionalUint(key string) (uint, error) {
 	}
 
 	return uint(parsed), nil
+}
+
+func optionalString(key string) string {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
+}
+
+func optionalBool(key string, fallback bool) (bool, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return false, fmt.Errorf("parse %s as bool: %w", key, err)
+	}
+
+	return parsed, nil
+}
+
+func optionalFloat64(key string, fallback float64) (float64, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s as float64: %w", key, err)
+	}
+
+	return parsed, nil
 }
 
 func optionalDuration(key string) (time.Duration, error) {

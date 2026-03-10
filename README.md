@@ -10,6 +10,8 @@ It polls Modbus TCP registers, converts raw values into telemetry readings, vali
 - validate telemetry using domain rules before persistence
 - persist valid measurements to InfluxDB
 - expose minimal health and readiness endpoints for runtime supervision
+- expose Prometheus metrics for service monitoring
+- export OpenTelemetry traces for collection, source, and persistence spans
 
 ## Architecture
 
@@ -110,6 +112,15 @@ INFLUX_BATCH_SIZE
 INFLUX_FLUSH_INTERVAL
 ```
 
+Optional tracing configuration:
+
+```text
+TRACING_ENABLED
+TRACING_ENDPOINT
+TRACING_INSECURE
+TRACING_SAMPLE_RATIO
+```
+
 Example:
 
 ```bash
@@ -129,6 +140,10 @@ export INFLUX_ORG=local
 export INFLUX_BUCKET=telemetry
 export INFLUX_LOG_LEVEL=0
 export INFLUX_WRITE_MODE=blocking
+export TRACING_ENABLED=false
+export TRACING_ENDPOINT=http://127.0.0.1:4318
+export TRACING_INSECURE=true
+export TRACING_SAMPLE_RATIO=1.0
 export HTTP_PORT=8080
 ```
 
@@ -143,6 +158,8 @@ When `INFLUX_WRITE_MODE=batch`, you can also set:
 
 - `INFLUX_BATCH_SIZE`
 - `INFLUX_FLUSH_INTERVAL`
+
+Tracing is exported over OTLP/HTTP when `TRACING_ENABLED=true`.
 
 ## Run
 
@@ -160,6 +177,21 @@ Endpoints:
 
 - `GET /healthz`
 - `GET /readyz`
+- `GET /metrics`
+
+`/metrics` is exposed with the official Prometheus Go client and includes both service telemetry counters and standard Go/process collectors.
+
+Telemetry histograms exposed for percentile dashboards:
+
+- `integration_service_telemetry_collection_duration_seconds`
+- `integration_service_telemetry_source_read_duration_seconds`
+- `integration_service_telemetry_persistence_duration_seconds`
+
+Trace spans emitted by the worker pipeline:
+
+- `telemetry.collect`
+- `telemetry.source.read`
+- `telemetry.persistence.save`
 
 ## Docker Compose
 
@@ -180,6 +212,7 @@ Services started by the compose stack:
 - `integration-service`
 - `influxdb`
 - `modbus-simulator`
+- `prometheus`
 
 The compose stack configures the simulator via `MODBUS_SERVER_CONFIG`, including the holding register values for `40100` and `40101`.
 
@@ -188,6 +221,18 @@ Exposed ports:
 - `8080`: Integration Service HTTP endpoints
 - `8086`: InfluxDB
 - `5020`: Modbus simulator
+- `9090`: Prometheus UI
+
+Prometheus scrapes the Integration Service from `integration-service:8080/metrics`.
+
+Example PromQL for p95 collection latency:
+
+```promql
+histogram_quantile(
+  0.95,
+  sum(rate(integration_service_telemetry_collection_duration_seconds_bucket[5m])) by (le)
+)
+```
 
 ## Testing
 

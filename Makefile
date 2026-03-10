@@ -16,6 +16,10 @@ INFLUX_LOG_LEVEL ?= 0
 INFLUX_WRITE_MODE ?= blocking
 INFLUX_BATCH_SIZE ?=
 INFLUX_FLUSH_INTERVAL ?=
+TRACING_ENABLED ?= false
+TRACING_ENDPOINT ?=
+TRACING_INSECURE ?= true
+TRACING_SAMPLE_RATIO ?= 1.0
 HTTP_PORT ?= 8080
 
 BASE_URL ?= http://localhost:$(HTTP_PORT)
@@ -30,7 +34,7 @@ ACTIVE_POWER ?= 55
 help:
 	@echo "Available targets:"
 	@echo "  make test          - run the Go test suite"
-	@echo "  make dev-up        - start local dependencies (InfluxDB + Modbus simulator)"
+	@echo "  make dev-up        - start local dependencies (InfluxDB + Modbus simulator + Prometheus)"
 	@echo "  make dev-down      - stop local dependencies"
 	@echo "  make compose-up    - start the full compose stack"
 	@echo "  make compose-down  - stop the full compose stack"
@@ -43,7 +47,7 @@ test:
 	go test ./...
 
 dev-up:
-	docker compose up -d influxdb modbus-simulator
+	docker compose up -d influxdb modbus-simulator prometheus
 
 dev-down:
 	docker compose down
@@ -76,6 +80,10 @@ run-local:
 	INFLUX_WRITE_MODE=$(INFLUX_WRITE_MODE) \
 	INFLUX_BATCH_SIZE=$(INFLUX_BATCH_SIZE) \
 	INFLUX_FLUSH_INTERVAL=$(INFLUX_FLUSH_INTERVAL) \
+	TRACING_ENABLED=$(TRACING_ENABLED) \
+	TRACING_ENDPOINT=$(TRACING_ENDPOINT) \
+	TRACING_INSECURE=$(TRACING_INSECURE) \
+	TRACING_SAMPLE_RATIO=$(TRACING_SAMPLE_RATIO) \
 	HTTP_PORT=$(HTTP_PORT) \
 	go run ./cmd/integration-service
 
