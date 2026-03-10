@@ -98,7 +98,7 @@ The service starts:
 
 ## Testing
 
-Run:
+Run unit tests with:
 
 ```bash
 go test ./...
@@ -109,3 +109,5 @@ Run the Docker-backed integration tests against a real InfluxDB 2.x instance wit
 ```bash
 go test -tags=integration ./internal/measurements/adapters/influxdb ./internal/measurements/ports
 ```
+
+Integration tests require Docker because they start a real InfluxDB 2.x container.
