@@ -34,7 +34,7 @@ ACTIVE_POWER ?= 55
 help:
 	@echo "Available targets:"
 	@echo "  make test          - run the Go test suite"
-	@echo "  make dev-up        - start local dependencies (InfluxDB + Modbus simulator + Prometheus)"
+	@echo "  make dev-up        - start local dependencies (InfluxDB + Modbus server + Prometheus)"
 	@echo "  make dev-down      - stop local dependencies"
 	@echo "  make compose-up    - start the full compose stack"
 	@echo "  make compose-down  - stop the full compose stack"
@@ -47,7 +47,7 @@ test:
 	go test ./...
 
 dev-up:
-	docker compose up -d influxdb modbus-simulator prometheus
+	docker compose up -d influxdb modbus-server prometheus
 
 dev-down:
 	docker compose down

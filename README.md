@@ -195,7 +195,7 @@ Trace spans emitted by the worker pipeline:
 
 ## Docker Compose
 
-To run the Integration Service with InfluxDB and a local Modbus simulator:
+To run the Integration Service with InfluxDB and the `oitc/modbus-server:latest` Modbus server image:
 
 ```bash
 docker compose up --build
@@ -211,16 +211,24 @@ Services started by the compose stack:
 
 - `integration-service`
 - `influxdb`
-- `modbus-simulator`
+- `modbus-server`
 - `prometheus`
 
-The compose stack configures the simulator via `MODBUS_SERVER_CONFIG`, including the holding register values for `40100` and `40101`.
+The compose stack uses `oitc/modbus-server:latest` with a mounted config file at [docker/modbus/server_config.json](/Users/aliheydarabadii/Desktop/interview/Stellar/docker/modbus/server_config.json), including the holding register values for `40100` and `40101`.
+
+The equivalent standalone Modbus server command is:
+
+```bash
+docker run --rm -p 5020:5020 \
+  -v ./docker/modbus/server_config.json:/server_config.json:ro \
+  oitc/modbus-server:latest -f /server_config.json
+```
 
 Exposed ports:
 
 - `8080`: Integration Service HTTP endpoints
 - `8086`: InfluxDB
-- `5020`: Modbus simulator
+- `5020`: Modbus server
 - `9090`: Prometheus UI
 
 Prometheus scrapes the Integration Service from `integration-service:8080/metrics`.
