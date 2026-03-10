@@ -1,0 +1,10 @@
+with-expecter: true
+issue-845-fix: true
+packages:
+  stellar/internal/telemetry/app/command:
+    config:
+      dir: internal/telemetry/app/command/mocks
+      outpkg: mocks
+    interfaces:
+      TelemetrySource: {}
+      MeasurementRepository: {}

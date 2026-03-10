@@ -1,4 +1,4 @@
-package command
+package command_test
 
 import (
 	"context"
@@ -6,153 +6,102 @@ import (
 	"testing"
 	"time"
 
+	command "stellar/internal/telemetry/app/command"
+	commandmocks "stellar/internal/telemetry/app/command/mocks"
 	"stellar/internal/telemetry/domain"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestCollectTelemetryHandlerHandle(t *testing.T) {
+type CollectTelemetryHandlerSuite struct {
+	suite.Suite
+	ctx         context.Context
+	collectedAt time.Time
+	source      *commandmocks.TelemetrySource
+	repository  *commandmocks.MeasurementRepository
+	handler     command.CollectTelemetryHandler
+}
+
+func TestCollectTelemetryHandlerSuite(t *testing.T) {
 	t.Parallel()
 
-	collectedAt := time.Date(2026, time.March, 9, 12, 0, 0, 0, time.UTC)
+	suite.Run(t, new(CollectTelemetryHandlerSuite))
+}
+
+func (s *CollectTelemetryHandlerSuite) SetupTest() {
+	s.ctx = context.Background()
+	s.collectedAt = time.Date(2026, time.March, 9, 12, 0, 0, 0, time.UTC)
+	s.source = commandmocks.NewTelemetrySource(s.T())
+	s.repository = commandmocks.NewMeasurementRepository(s.T())
+	s.handler = command.NewCollectTelemetryHandler(domain.DefaultAssetID, s.source, s.repository)
+}
+
+func (s *CollectTelemetryHandlerSuite) TestValidReadingGetsSaved() {
+	reading := command.TelemetryReading{
+		Setpoint:    100,
+		ActivePower: 80,
+	}
+	expectedMeasurement := domain.Measurement{
+		AssetID:     domain.DefaultAssetID,
+		Setpoint:    100,
+		ActivePower: 80,
+		CollectedAt: s.collectedAt,
+	}
+
+	s.source.EXPECT().Read(mock.Anything).Return(reading, nil).Once()
+	s.repository.EXPECT().Save(mock.Anything, expectedMeasurement).Return(nil).Once()
+
+	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+
+	s.NoError(err)
+}
+
+func (s *CollectTelemetryHandlerSuite) TestInvalidReadingDoesNotGetSaved() {
+	s.source.EXPECT().Read(mock.Anything).Return(command.TelemetryReading{
+		Setpoint:    10,
+		ActivePower: 20,
+	}, nil).Once()
+
+	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+
+	s.Error(err)
+	s.ErrorIs(err, command.ErrInvalidTelemetry)
+	s.ErrorIs(err, domain.ErrInvalidMeasurement)
+	s.repository.AssertNotCalled(s.T(), "Save", mock.Anything, mock.Anything)
+}
+
+func (s *CollectTelemetryHandlerSuite) TestSourceErrorIsReturned() {
 	sourceErr := errors.New("source unavailable")
+
+	s.source.EXPECT().Read(mock.Anything).Return(command.TelemetryReading{}, sourceErr).Once()
+
+	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+
+	s.Error(err)
+	s.ErrorIs(err, command.ErrTelemetrySource)
+	s.ErrorIs(err, sourceErr)
+	s.repository.AssertNotCalled(s.T(), "Save", mock.Anything, mock.Anything)
+}
+
+func (s *CollectTelemetryHandlerSuite) TestRepositoryErrorIsReturned() {
 	repositoryErr := errors.New("repository unavailable")
-
-	tests := []struct {
-		name                 string
-		reading              TelemetryReading
-		sourceErr            error
-		repositoryErr        error
-		wantErr              error
-		wantDomainErr        error
-		wantSavedCount       int
-		wantSavedMeasurement domain.Measurement
-	}{
-		{
-			name: "valid reading gets saved",
-			reading: TelemetryReading{
-				Setpoint:    100,
-				ActivePower: 80,
-			},
-			wantSavedCount: 1,
-			wantSavedMeasurement: domain.Measurement{
-				AssetID:     domain.DefaultAssetID,
-				Setpoint:    100,
-				ActivePower: 80,
-				CollectedAt: collectedAt,
-			},
-		},
-		{
-			name: "invalid reading does not get saved",
-			reading: TelemetryReading{
-				Setpoint:    10,
-				ActivePower: 20,
-			},
-			wantErr:        ErrInvalidTelemetry,
-			wantDomainErr:  domain.ErrInvalidMeasurement,
-			wantSavedCount: 0,
-		},
-		{
-			name:           "source error is returned",
-			sourceErr:      sourceErr,
-			wantErr:        ErrTelemetrySource,
-			wantDomainErr:  sourceErr,
-			wantSavedCount: 0,
-		},
-		{
-			name: "repository error is returned",
-			reading: TelemetryReading{
-				Setpoint:    100,
-				ActivePower: 80,
-			},
-			repositoryErr:  repositoryErr,
-			wantErr:        ErrMeasurementPersistence,
-			wantDomainErr:  repositoryErr,
-			wantSavedCount: 1,
-			wantSavedMeasurement: domain.Measurement{
-				AssetID:     domain.DefaultAssetID,
-				Setpoint:    100,
-				ActivePower: 80,
-				CollectedAt: collectedAt,
-			},
-		},
+	expectedMeasurement := domain.Measurement{
+		AssetID:     domain.DefaultAssetID,
+		Setpoint:    100,
+		ActivePower: 80,
+		CollectedAt: s.collectedAt,
 	}
 
-	for _, tt := range tests {
-		tt := tt
+	s.source.EXPECT().Read(mock.Anything).Return(command.TelemetryReading{
+		Setpoint:    100,
+		ActivePower: 80,
+	}, nil).Once()
+	s.repository.EXPECT().Save(mock.Anything, expectedMeasurement).Return(repositoryErr).Once()
 
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
 
-			source := &stubTelemetrySource{
-				reading: tt.reading,
-				err:     tt.sourceErr,
-			}
-			repository := &stubMeasurementRepository{
-				err: tt.repositoryErr,
-			}
-
-			handler := NewCollectTelemetryHandler(domain.DefaultAssetID, source, repository)
-			err := handler.Handle(context.Background(), CollectTelemetry{CollectedAt: collectedAt})
-
-			if tt.wantErr == nil {
-				if err != nil {
-					t.Fatalf("expected no error, got %v", err)
-				}
-			} else {
-				if err == nil {
-					t.Fatalf("expected error %v, got nil", tt.wantErr)
-				}
-
-				if !errors.Is(err, tt.wantErr) {
-					t.Fatalf("expected error %v, got %v", tt.wantErr, err)
-				}
-			}
-
-			if tt.wantDomainErr != nil && !errors.Is(err, tt.wantDomainErr) {
-				t.Fatalf("expected domain error %v, got %v", tt.wantDomainErr, err)
-			}
-
-			if source.callCount != 1 {
-				t.Fatalf("expected source to be called once, got %d", source.callCount)
-			}
-
-			if len(repository.saved) != tt.wantSavedCount {
-				t.Fatalf("expected %d saved measurements, got %d", tt.wantSavedCount, len(repository.saved))
-			}
-
-			if tt.wantSavedCount == 1 {
-				if repository.saved[0] != tt.wantSavedMeasurement {
-					t.Fatalf("expected saved measurement %+v, got %+v", tt.wantSavedMeasurement, repository.saved[0])
-				}
-			}
-		})
-	}
-}
-
-type stubTelemetrySource struct {
-	reading   TelemetryReading
-	err       error
-	callCount int
-}
-
-func (s *stubTelemetrySource) Read(_ context.Context) (TelemetryReading, error) {
-	s.callCount++
-	if s.err != nil {
-		return TelemetryReading{}, s.err
-	}
-
-	return s.reading, nil
-}
-
-type stubMeasurementRepository struct {
-	saved []domain.Measurement
-	err   error
-}
-
-func (r *stubMeasurementRepository) Save(_ context.Context, measurement domain.Measurement) error {
-	r.saved = append(r.saved, measurement)
-	if r.err != nil {
-		return r.err
-	}
-
-	return nil
+	s.Error(err)
+	s.ErrorIs(err, command.ErrMeasurementPersistence)
+	s.ErrorIs(err, repositoryErr)
 }
