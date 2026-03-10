@@ -6,29 +6,51 @@ import (
 	"stellar/internal/telemetry/domain"
 )
 
+const assetMeasurementsName = "asset_measurements"
+
 type Point struct {
 	Name      string
-	Tags      map[string]string
-	Fields    map[string]float64
+	Tags      PointTags
+	Fields    PointFields
 	Timestamp time.Time
 }
 
-type PointMapper struct{}
+type PointTags struct {
+	AssetID   string
+	AssetType string
+}
+
+type PointFields struct {
+	Setpoint    float64
+	ActivePower float64
+}
+
+type PointMapper struct {
+	assetType string
+}
 
 func NewPointMapper() *PointMapper {
 	return &PointMapper{}
 }
 
+func NewPointMapperWithAssetType(assetType string) *PointMapper {
+	return &PointMapper{assetType: assetType}
+}
+
 func (m *PointMapper) Map(measurement domain.Measurement) Point {
-	// TODO: map domain measurements to the real InfluxDB point representation.
+
+	tags := PointTags{AssetID: measurement.AssetID.String()}
+
+	if m.assetType != "" {
+		tags.AssetType = m.assetType
+	}
+
 	return Point{
-		Name: "telemetry",
-		Tags: map[string]string{
-			"asset_id": measurement.AssetID.String(),
-		},
-		Fields: map[string]float64{
-			"setpoint":     measurement.Setpoint,
-			"active_power": measurement.ActivePower,
+		Name: assetMeasurementsName,
+		Tags: tags,
+		Fields: PointFields{
+			Setpoint:    measurement.Setpoint,
+			ActivePower: measurement.ActivePower,
 		},
 		Timestamp: measurement.CollectedAt,
 	}
