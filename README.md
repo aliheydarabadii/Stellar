@@ -90,8 +90,8 @@ The service starts:
 - InfluxDB is the read model and stores records in `asset_measurements`.
 - Measurements are filtered by `asset_id`.
 - The response time series is one-second resolution.
-- If multiple writes exist within the same second, the latest field value in that second wins.
-- A response point is emitted only when both `setpoint` and `active_power` exist for that second.
+- If multiple writes exist within the same second, the latest exact timestamp in that second that has both `setpoint` and `active_power` wins.
+- A response point is emitted only when both `setpoint` and `active_power` exist at the same exact timestamp within that second.
 - Missing seconds are not interpolated.
 - Repeated InfluxDB failures open a circuit breaker to fail fast until the cool-down window expires.
 - The external five-minute cache behavior belongs to the API Gateway, not this service.
@@ -102,4 +102,10 @@ Run:
 
 ```bash
 go test ./...
+```
+
+Run the Docker-backed integration tests against a real InfluxDB 2.x instance with:
+
+```bash
+go test -tags=integration ./internal/measurements/adapters/influxdb ./internal/measurements/ports
 ```
