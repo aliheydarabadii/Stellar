@@ -28,7 +28,13 @@ func TestGRPCServerGetMeasurementsMapsRequestAndResponse(t *testing.T) {
 			},
 		},
 	}
-	server := NewGRPCServer(app.New(readModel))
+
+	application, err := app.New(readModel)
+	if err != nil {
+		t.Fatalf("expected valid app, got %v", err)
+	}
+
+	server := NewGRPCServer(application)
 
 	resp, err := server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "asset-1",
@@ -73,9 +79,15 @@ func TestGRPCServerGetMeasurementsRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
-	server := NewGRPCServer(app.New(&capturingReadModel{}))
 
-	_, err := server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
+	application, err := app.New(&capturingReadModel{})
+	if err != nil {
+		t.Fatalf("expected valid app, got %v", err)
+	}
+
+	server := NewGRPCServer(application)
+
+	_, err = server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "",
 		From:    timestamppb.New(now),
 		To:      timestamppb.New(now),
@@ -93,11 +105,17 @@ func TestGRPCServerGetMeasurementsMapsReadModelUnavailable(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
-	server := NewGRPCServer(app.New(&capturingReadModel{
-		err: query.ErrReadModelUnavailable,
-	}))
 
-	_, err := server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
+	application, err := app.New(&capturingReadModel{
+		err: query.ErrReadModelUnavailable,
+	})
+	if err != nil {
+		t.Fatalf("expected valid app, got %v", err)
+	}
+
+	server := NewGRPCServer(application)
+
+	_, err = server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "asset-1",
 		From:    timestamppb.New(now),
 		To:      timestamppb.New(now),
@@ -108,6 +126,68 @@ func TestGRPCServerGetMeasurementsMapsReadModelUnavailable(t *testing.T) {
 
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("expected Unavailable, got %v", status.Code(err))
+	}
+}
+
+func TestGRPCServerGetMeasurementsRejectsInvalidRequestShape(t *testing.T) {
+	t.Parallel()
+
+	application, err := app.New(&capturingReadModel{})
+	if err != nil {
+		t.Fatalf("expected valid app, got %v", err)
+	}
+
+	server := NewGRPCServer(application)
+
+	now := time.Now().UTC()
+	invalidTimestamp := &timestamppb.Timestamp{Seconds: 1, Nanos: 1_000_000_000}
+
+	testCases := []struct {
+		name string
+		req  *measurementsv1.GetMeasurementsRequest
+	}{
+		{
+			name: "nil request",
+			req:  nil,
+		},
+		{
+			name: "missing from",
+			req: &measurementsv1.GetMeasurementsRequest{
+				AssetId: "asset-1",
+				To:      timestamppb.New(now),
+			},
+		},
+		{
+			name: "missing to",
+			req: &measurementsv1.GetMeasurementsRequest{
+				AssetId: "asset-1",
+				From:    timestamppb.New(now),
+			},
+		},
+		{
+			name: "invalid protobuf timestamp",
+			req: &measurementsv1.GetMeasurementsRequest{
+				AssetId: "asset-1",
+				From:    invalidTimestamp,
+				To:      timestamppb.New(now),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := server.GetMeasurements(context.Background(), tc.req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("expected InvalidArgument, got %v", status.Code(err))
+			}
+		})
 	}
 }
 

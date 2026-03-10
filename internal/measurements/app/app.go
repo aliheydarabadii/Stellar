@@ -1,4 +1,3 @@
-// Package app wires query handlers for the measurements bounded context.
 package app
 
 import "stellar/internal/measurements/app/query"
@@ -11,10 +10,15 @@ type Queries struct {
 	GetMeasurements query.GetMeasurementsHandler
 }
 
-func New(readModel query.MeasurementsReadModel) Application {
+func New(readModel query.MeasurementsReadModel) (Application, error) {
+	getMeasurements, err := query.NewGetMeasurementsHandler(readModel)
+	if err != nil {
+		return Application{}, err
+	}
+
 	return Application{
 		Queries: Queries{
-			GetMeasurements: query.NewGetMeasurementsHandler(readModel),
+			GetMeasurements: getMeasurements,
 		},
-	}
+	}, nil
 }

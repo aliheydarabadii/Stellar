@@ -54,11 +54,15 @@ func run(logger *slog.Logger) error {
 	influxClient := influxdb2.NewClient(cfg.InfluxURL, cfg.InfluxToken)
 	defer influxClient.Close()
 
-	application := app.New(influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
+	application, err := app.New(influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
 		FailureThreshold:    cfg.InfluxCircuitBreakerFailureThreshold,
 		OpenTimeout:         cfg.InfluxCircuitBreakerOpenTimeout,
 		HalfOpenMaxRequests: cfg.InfluxCircuitBreakerHalfOpenMaxRequests,
 	}))
+	if err != nil {
+		logger.Error("failed to initialize application", "error", err)
+		os.Exit(1)
+	}
 	grpcServer := grpc.NewServer()
 	measurementsv1.RegisterMeasurementServiceServer(grpcServer, ports.NewGRPCServer(application))
 

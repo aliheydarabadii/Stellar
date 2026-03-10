@@ -7,10 +7,23 @@ import (
 	"time"
 )
 
+func TestNewGetMeasurementsHandlerRejectsNilReadModel(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewGetMeasurementsHandler(nil)
+	if !errors.Is(err, ErrReadModelUnavailable) {
+		t.Fatalf("expected error %v, got %v", ErrReadModelUnavailable, err)
+	}
+}
+
 func TestGetMeasurementsHandlerHandleRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
-	handler := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{})
+	handler, err := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{})
+	if err != nil {
+		t.Fatalf("expected valid handler, got %v", err)
+	}
+
 	now := time.Now().UTC()
 
 	testCases := []struct {
@@ -71,7 +84,11 @@ func TestGetMeasurementsHandlerHandleReturnsPoints(t *testing.T) {
 			},
 		},
 	}
-	handler := NewGetMeasurementsHandler(readModel)
+
+	handler, err := NewGetMeasurementsHandler(readModel)
+	if err != nil {
+		t.Fatalf("expected valid handler, got %v", err)
+	}
 
 	got, err := handler.Handle(context.Background(), GetMeasurements{
 		AssetID: " asset-1 ",
@@ -100,9 +117,13 @@ func TestGetMeasurementsHandlerHandleReturnsReadModelError(t *testing.T) {
 
 	wantErr := errors.New("read model failed")
 	now := time.Now().UTC()
-	handler := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{err: wantErr})
 
-	_, err := handler.Handle(context.Background(), GetMeasurements{
+	handler, err := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{err: wantErr})
+	if err != nil {
+		t.Fatalf("expected valid handler, got %v", err)
+	}
+
+	_, err = handler.Handle(context.Background(), GetMeasurements{
 		AssetID: "asset-1",
 		From:    now,
 		To:      now,

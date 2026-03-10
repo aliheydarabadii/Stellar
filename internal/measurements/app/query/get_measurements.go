@@ -28,8 +28,12 @@ type GetMeasurementsHandler struct {
 	readModel MeasurementsReadModel
 }
 
-func NewGetMeasurementsHandler(readModel MeasurementsReadModel) GetMeasurementsHandler {
-	return GetMeasurementsHandler{readModel: readModel}
+func NewGetMeasurementsHandler(readModel MeasurementsReadModel) (GetMeasurementsHandler, error) {
+	if readModel == nil {
+		return GetMeasurementsHandler{}, ErrReadModelUnavailable
+	}
+
+	return GetMeasurementsHandler{readModel: readModel}, nil
 }
 
 func (h GetMeasurementsHandler) Handle(ctx context.Context, qry GetMeasurements) (MeasurementSeries, error) {
@@ -42,6 +46,8 @@ func (h GetMeasurementsHandler) Handle(ctx context.Context, qry GetMeasurements)
 		return MeasurementSeries{}, ErrTimestampZero
 	case qry.From.After(qry.To):
 		return MeasurementSeries{}, ErrInvalidTimeRange
+	case h.readModel == nil:
+		return MeasurementSeries{}, ErrReadModelUnavailable
 	}
 
 	points, err := h.readModel.GetMeasurements(ctx, assetID, qry.From, qry.To)

@@ -8,25 +8,37 @@ import (
 	"stellar/internal/measurements/app/query"
 )
 
-func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error) {
-	type secondBucket struct {
-		timestamp      time.Time
-		setpoint       float64
-		activePower    float64
-		hasSetpoint    bool
-		hasActivePower bool
-	}
+type exactTimestampBucket struct {
+	setpoint       float64
+	activePower    float64
+	hasSetpoint    bool
+	hasActivePower bool
+}
 
+type secondBucket struct {
+	byTimestamp map[time.Time]*exactTimestampBucket
+}
+
+func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error) {
 	grouped := make(map[time.Time]*secondBucket)
 
 	for records.Next() {
 		record := records.Record()
-		second := record.Time.UTC().Truncate(time.Second)
+		timestamp := record.Time.UTC()
+		second := timestamp.Truncate(time.Second)
 
 		bucket, ok := grouped[second]
 		if !ok {
-			bucket = &secondBucket{timestamp: second}
+			bucket = &secondBucket{
+				byTimestamp: make(map[time.Time]*exactTimestampBucket),
+			}
 			grouped[second] = bucket
+		}
+
+		pointBucket, ok := bucket.byTimestamp[timestamp]
+		if !ok {
+			pointBucket = &exactTimestampBucket{}
+			bucket.byTimestamp[timestamp] = pointBucket
 		}
 
 		value, err := toFloat64(record.Value)
@@ -36,11 +48,11 @@ func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error
 
 		switch record.Field {
 		case "setpoint":
-			bucket.setpoint = value
-			bucket.hasSetpoint = true
+			pointBucket.setpoint = value
+			pointBucket.hasSetpoint = true
 		case "active_power":
-			bucket.activePower = value
-			bucket.hasActivePower = true
+			pointBucket.activePower = value
+			pointBucket.hasActivePower = true
 		default:
 			return nil, fmt.Errorf("unexpected measurement field %q", record.Field)
 		}
@@ -56,20 +68,38 @@ func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error
 
 	points := make([]query.MeasurementPoint, 0, len(seconds))
 	for _, second := range seconds {
-		bucket := grouped[second]
-		if !bucket.hasSetpoint || !bucket.hasActivePower {
-			// A response point requires both fields; missing values are not invented.
-			continue
+		point, ok := latestCompletePointWithinSecond(second, grouped[second])
+		if ok {
+			points = append(points, point)
 		}
-
-		points = append(points, query.MeasurementPoint{
-			Timestamp:   bucket.timestamp,
-			Setpoint:    bucket.setpoint,
-			ActivePower: bucket.activePower,
-		})
 	}
 
 	return points, nil
+}
+
+func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (query.MeasurementPoint, bool) {
+	timestamps := make([]time.Time, 0, len(bucket.byTimestamp))
+	for timestamp := range bucket.byTimestamp {
+		timestamps = append(timestamps, timestamp)
+	}
+	sort.Slice(timestamps, func(i, j int) bool {
+		return timestamps[i].After(timestamps[j])
+	})
+
+	for _, timestamp := range timestamps {
+		pointBucket := bucket.byTimestamp[timestamp]
+		if !pointBucket.hasSetpoint || !pointBucket.hasActivePower {
+			continue
+		}
+
+		return query.MeasurementPoint{
+			Timestamp:   second,
+			Setpoint:    pointBucket.setpoint,
+			ActivePower: pointBucket.activePower,
+		}, true
+	}
+
+	return query.MeasurementPoint{}, false
 }
 
 func toFloat64(value any) (float64, error) {

@@ -94,34 +94,100 @@ func TestReadModelGetMeasurementsReturnsPointsOrderedByTimestamp(t *testing.T) {
 	}
 }
 
-func TestReadModelGetMeasurementsLatestPointWinsWithinSecond(t *testing.T) {
+func TestReadModelGetMeasurementsSelectsLatestCompletePointWithinSecond(t *testing.T) {
 	t.Parallel()
 
-	base := time.Date(2026, 3, 10, 12, 0, 0, 100_000_000, time.UTC)
-	later := base.Add(700 * time.Millisecond)
-	model := &ReadModel{
-		bucket: "measurements",
-		query: fakeQueryExecutor{
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+
+	testCases := []struct {
+		name    string
+		records []influxRecord
+		want    []query.MeasurementPoint
+	}{
+		{
+			name: "later complete point wins",
 			records: []influxRecord{
-				{Time: base, Field: "setpoint", Value: 10.0},
-				{Time: base, Field: "active_power", Value: 9.0},
-				{Time: later, Field: "setpoint", Value: 13.0},
-				{Time: later, Field: "active_power", Value: 12.5},
+				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
+				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
+				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 13.0},
+				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
 			},
+			want: []query.MeasurementPoint{
+				{
+					Timestamp:   base,
+					Setpoint:    13.0,
+					ActivePower: 12.5,
+				},
+			},
+		},
+		{
+			name: "earlier complete point wins when later timestamp is incomplete",
+			records: []influxRecord{
+				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
+				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
+				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 13.0},
+			},
+			want: []query.MeasurementPoint{
+				{
+					Timestamp:   base,
+					Setpoint:    10.0,
+					ActivePower: 9.0,
+				},
+			},
+		},
+		{
+			name: "interleaved timestamps are not mixed together",
+			records: []influxRecord{
+				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
+				{Time: base.Add(400 * time.Millisecond), Field: "active_power", Value: 12.5},
+				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 14.0},
+				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
+			},
+			want: []query.MeasurementPoint{
+				{
+					Timestamp:   base,
+					Setpoint:    10.0,
+					ActivePower: 9.0,
+				},
+			},
+		},
+		{
+			name: "second is dropped when no timestamp has both fields",
+			records: []influxRecord{
+				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
+				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
+			},
+			want: nil,
 		},
 	}
 
-	got, err := model.GetMeasurements(context.Background(), "asset-1", base.Add(-time.Minute), base.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if len(got) != 1 {
-		t.Fatalf("expected 1 point, got %d", len(got))
-	}
+			model := &ReadModel{
+				bucket: "measurements",
+				query: fakeQueryExecutor{
+					records: tc.records,
+				},
+			}
 
-	if got[0].Setpoint != 13.0 || got[0].ActivePower != 12.5 {
-		t.Fatalf("expected latest values, got %+v", got[0])
+			got, err := model.GetMeasurements(context.Background(), "asset-1", base.Add(-time.Minute), base.Add(time.Minute))
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+
+			if len(got) != len(tc.want) {
+				t.Fatalf("expected %d points, got %d", len(tc.want), len(got))
+			}
+
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("expected %+v, got %+v", tc.want[i], got[i])
+				}
+			}
+		})
 	}
 }
 
