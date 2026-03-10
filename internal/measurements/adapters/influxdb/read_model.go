@@ -20,6 +20,7 @@ type ReadModel struct {
 	bucket  string
 	timeout time.Duration
 	query   queryExecutor
+	breaker *circuitBreaker
 }
 
 type queryExecutor interface {
@@ -38,13 +39,14 @@ type influxRecord struct {
 	Value any
 }
 
-func NewReadModel(client influxdb2.Client, org, bucket string, timeout time.Duration) *ReadModel {
+func NewReadModel(client influxdb2.Client, org, bucket string, timeout time.Duration, breakerConfig CircuitBreakerConfig) *ReadModel {
 	return &ReadModel{
 		bucket:  bucket,
 		timeout: timeout,
 		query: influxQueryExecutor{
 			queryAPI: client.QueryAPI(org),
 		},
+		breaker: newCircuitBreaker(breakerConfig),
 	}
 }
 
@@ -55,14 +57,34 @@ func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, t
 		defer cancel()
 	}
 
+	if r.breaker != nil {
+		if err := r.breaker.allow(); err != nil {
+			return nil, fmt.Errorf("%w: %w", query.ErrReadModelUnavailable, err)
+		}
+	}
+
 	records, err := r.query.Query(ctx, buildMeasurementsQuery(r.bucket, assetID, from, to))
 	if err != nil {
-		return nil, fmt.Errorf("query influxdb: %w", err)
+		if r.breaker != nil {
+			r.breaker.onFailure()
+		}
+		return nil, fmt.Errorf("%w: query influxdb: %w", query.ErrReadModelUnavailable, err)
 	}
 
 	points, err := mapRecordsToPoints(records)
 	if err != nil {
 		return nil, fmt.Errorf("map influxdb records: %w", err)
+	}
+
+	if err := records.Err(); err != nil {
+		if r.breaker != nil {
+			r.breaker.onFailure()
+		}
+		return nil, fmt.Errorf("%w: iterate influxdb records: %w", query.ErrReadModelUnavailable, err)
+	}
+
+	if r.breaker != nil {
+		r.breaker.onSuccess()
 	}
 
 	return points, nil

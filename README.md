@@ -56,6 +56,9 @@ The service reads configuration from environment variables:
 - `GRPC_LISTEN_ADDR`: gRPC listen address, default `:9090`
 - `HEALTH_LISTEN_ADDR`: health HTTP listen address, default `:8080`
 - `QUERY_TIMEOUT`: optional query timeout duration, default `10s`
+- `INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD`: optional consecutive failure threshold before opening the breaker, default `5`
+- `INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT`: optional time the breaker stays open before half-open probe requests are allowed, default `30s`
+- `INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS`: optional max concurrent probe requests in half-open state, default `1`
 
 ## Running
 
@@ -90,6 +93,7 @@ The service starts:
 - If multiple writes exist within the same second, the latest field value in that second wins.
 - A response point is emitted only when both `setpoint` and `active_power` exist for that second.
 - Missing seconds are not interpolated.
+- Repeated InfluxDB failures open a circuit breaker to fail fast until the cool-down window expires.
 - The external five-minute cache behavior belongs to the API Gateway, not this service.
 
 ## Testing

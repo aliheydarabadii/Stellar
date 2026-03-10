@@ -140,12 +140,133 @@ func TestReadModelGetMeasurementsReturnsExecutorError(t *testing.T) {
 	}
 }
 
+func TestReadModelGetMeasurementsOpensCircuitAfterThreshold(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	executor := &countingQueryExecutor{err: errors.New("influx unavailable")}
+	model := &ReadModel{
+		bucket: "measurements",
+		query:  executor,
+		breaker: newCircuitBreaker(CircuitBreakerConfig{
+			FailureThreshold:    2,
+			OpenTimeout:         time.Minute,
+			HalfOpenMaxRequests: 1,
+		}),
+	}
+	model.breaker.clock = func() time.Time { return now }
+
+	for range 2 {
+		_, _ = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+	}
+
+	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+	if !errors.Is(err, query.ErrReadModelUnavailable) {
+		t.Fatalf("expected read model unavailable error, got %v", err)
+	}
+
+	if executor.calls != 2 {
+		t.Fatalf("expected query executor to be called twice before circuit opened, got %d", executor.calls)
+	}
+}
+
+func TestReadModelGetMeasurementsHalfOpenClosesOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	executor := &countingQueryExecutor{
+		err: errors.New("temporary failure"),
+	}
+	model := &ReadModel{
+		bucket: "measurements",
+		query:  executor,
+		breaker: newCircuitBreaker(CircuitBreakerConfig{
+			FailureThreshold:    1,
+			OpenTimeout:         time.Second,
+			HalfOpenMaxRequests: 1,
+		}),
+	}
+	model.breaker.clock = func() time.Time { return now }
+
+	_, _ = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+
+	now = now.Add(2 * time.Second)
+	executor.err = nil
+	executor.records = []influxRecord{
+		{Time: now, Field: "setpoint", Value: 10.0},
+		{Time: now, Field: "active_power", Value: 9.0},
+	}
+
+	got, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+	if err != nil {
+		t.Fatalf("expected no error after half-open probe, got %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 point after circuit closed, got %d", len(got))
+	}
+
+	_, err = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+	if err != nil {
+		t.Fatalf("expected subsequent call to pass after breaker closed, got %v", err)
+	}
+}
+
+func TestReadModelGetMeasurementsTripsCircuitOnIteratorError(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	wantErr := errors.New("stream failed")
+	model := &ReadModel{
+		bucket: "measurements",
+		query: fakeQueryExecutor{
+			iteratorErr: wantErr,
+			records: []influxRecord{
+				{Time: now, Field: "setpoint", Value: 10.0},
+				{Time: now, Field: "active_power", Value: 9.0},
+			},
+		},
+		breaker: newCircuitBreaker(CircuitBreakerConfig{
+			FailureThreshold:    1,
+			OpenTimeout:         time.Minute,
+			HalfOpenMaxRequests: 1,
+		}),
+	}
+	model.breaker.clock = func() time.Time { return now }
+
+	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+	if !errors.Is(err, query.ErrReadModelUnavailable) {
+		t.Fatalf("expected read model unavailable error, got %v", err)
+	}
+
+	_, err = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+	if !errors.Is(err, query.ErrReadModelUnavailable) {
+		t.Fatalf("expected open circuit on second call, got %v", err)
+	}
+}
+
 type fakeQueryExecutor struct {
-	records []influxRecord
-	err     error
+	records     []influxRecord
+	err         error
+	iteratorErr error
 }
 
 func (f fakeQueryExecutor) Query(_ context.Context, _ string) (recordIterator, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	return &sliceRecordIterator{records: f.records, err: f.iteratorErr}, nil
+}
+
+type countingQueryExecutor struct {
+	records []influxRecord
+	err     error
+	calls   int
+}
+
+func (f *countingQueryExecutor) Query(_ context.Context, _ string) (recordIterator, error) {
+	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -156,6 +277,7 @@ func (f fakeQueryExecutor) Query(_ context.Context, _ string) (recordIterator, e
 type sliceRecordIterator struct {
 	records []influxRecord
 	index   int
+	err     error
 }
 
 func (i *sliceRecordIterator) Next() bool {
@@ -172,5 +294,5 @@ func (i *sliceRecordIterator) Record() influxRecord {
 }
 
 func (i *sliceRecordIterator) Err() error {
-	return nil
+	return i.err
 }

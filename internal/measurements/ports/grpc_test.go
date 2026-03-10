@@ -89,16 +89,44 @@ func TestGRPCServerGetMeasurementsRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestGRPCServerGetMeasurementsMapsReadModelUnavailable(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	server := NewGRPCServer(app.New(&capturingReadModel{
+		err: query.ErrReadModelUnavailable,
+	}))
+
+	_, err := server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
+		AssetId: "asset-1",
+		From:    timestamppb.New(now),
+		To:      timestamppb.New(now),
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("expected Unavailable, got %v", status.Code(err))
+	}
+}
+
 type capturingReadModel struct {
 	assetID string
 	from    time.Time
 	to      time.Time
 	points  []query.MeasurementPoint
+	err     error
 }
 
 func (r *capturingReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]query.MeasurementPoint, error) {
 	r.assetID = assetID
 	r.from = from
 	r.to = to
+
+	if r.err != nil {
+		return nil, r.err
+	}
+
 	return r.points, nil
 }

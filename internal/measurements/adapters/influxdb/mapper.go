@@ -46,10 +46,6 @@ func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error
 		}
 	}
 
-	if err := records.Err(); err != nil {
-		return nil, err
-	}
-
 	seconds := make([]time.Time, 0, len(grouped))
 	for second := range grouped {
 		seconds = append(seconds, second)

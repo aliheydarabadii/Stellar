@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,13 +24,16 @@ import (
 )
 
 type config struct {
-	InfluxURL        string
-	InfluxOrg        string
-	InfluxBucket     string
-	InfluxToken      string
-	GRPCListenAddr   string
-	HealthListenAddr string
-	QueryTimeout     time.Duration
+	InfluxURL                               string
+	InfluxOrg                               string
+	InfluxBucket                            string
+	InfluxToken                             string
+	GRPCListenAddr                          string
+	HealthListenAddr                        string
+	QueryTimeout                            time.Duration
+	InfluxCircuitBreakerFailureThreshold    int
+	InfluxCircuitBreakerOpenTimeout         time.Duration
+	InfluxCircuitBreakerHalfOpenMaxRequests int
 }
 
 func main() {
@@ -50,7 +54,11 @@ func run(logger *slog.Logger) error {
 	influxClient := influxdb2.NewClient(cfg.InfluxURL, cfg.InfluxToken)
 	defer influxClient.Close()
 
-	application := app.New(influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout))
+	application := app.New(influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
+		FailureThreshold:    cfg.InfluxCircuitBreakerFailureThreshold,
+		OpenTimeout:         cfg.InfluxCircuitBreakerOpenTimeout,
+		HalfOpenMaxRequests: cfg.InfluxCircuitBreakerHalfOpenMaxRequests,
+	}))
 	grpcServer := grpc.NewServer()
 	measurementsv1.RegisterMeasurementServiceServer(grpcServer, ports.NewGRPCServer(application))
 
@@ -124,13 +132,16 @@ func shutdown(parent context.Context, logger *slog.Logger, grpcServer *grpc.Serv
 
 func loadConfig() (config, error) {
 	cfg := config{
-		InfluxURL:        os.Getenv("INFLUX_URL"),
-		InfluxOrg:        os.Getenv("INFLUX_ORG"),
-		InfluxBucket:     os.Getenv("INFLUX_BUCKET"),
-		InfluxToken:      os.Getenv("INFLUX_TOKEN"),
-		GRPCListenAddr:   envOrDefault("GRPC_LISTEN_ADDR", ":9090"),
-		HealthListenAddr: envOrDefault("HEALTH_LISTEN_ADDR", ":8080"),
-		QueryTimeout:     10 * time.Second,
+		InfluxURL:                               os.Getenv("INFLUX_URL"),
+		InfluxOrg:                               os.Getenv("INFLUX_ORG"),
+		InfluxBucket:                            os.Getenv("INFLUX_BUCKET"),
+		InfluxToken:                             os.Getenv("INFLUX_TOKEN"),
+		GRPCListenAddr:                          envOrDefault("GRPC_LISTEN_ADDR", ":9090"),
+		HealthListenAddr:                        envOrDefault("HEALTH_LISTEN_ADDR", ":8080"),
+		QueryTimeout:                            10 * time.Second,
+		InfluxCircuitBreakerFailureThreshold:    5,
+		InfluxCircuitBreakerOpenTimeout:         30 * time.Second,
+		InfluxCircuitBreakerHalfOpenMaxRequests: 1,
 	}
 
 	if rawTimeout := os.Getenv("QUERY_TIMEOUT"); rawTimeout != "" {
@@ -139,6 +150,33 @@ func loadConfig() (config, error) {
 			return config{}, fmt.Errorf("parse QUERY_TIMEOUT: %w", err)
 		}
 		cfg.QueryTimeout = timeout
+	}
+
+	if value := os.Getenv("INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD"); value != "" {
+		parsed, err := parsePositiveInt(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD: %w", err)
+		}
+		cfg.InfluxCircuitBreakerFailureThreshold = parsed
+	}
+
+	if value := os.Getenv("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT must be positive")
+		}
+		cfg.InfluxCircuitBreakerOpenTimeout = parsed
+	}
+
+	if value := os.Getenv("INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS"); value != "" {
+		parsed, err := parsePositiveInt(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
+		}
+		cfg.InfluxCircuitBreakerHalfOpenMaxRequests = parsed
 	}
 
 	switch {
@@ -161,4 +199,16 @@ func envOrDefault(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+func parsePositiveInt(value string) (int, error) {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	if parsed <= 0 {
+		return 0, errors.New("value must be positive")
+	}
+
+	return parsed, nil
 }

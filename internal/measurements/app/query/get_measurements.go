@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrAssetIDRequired  = errors.New("asset id is required")
-	ErrInvalidTimeRange = errors.New("from must not be after to")
-	ErrTimestampZero    = errors.New("from and to must be set")
+	ErrAssetIDRequired      = errors.New("asset id is required")
+	ErrInvalidTimeRange     = errors.New("from must not be after to")
+	ErrTimestampZero        = errors.New("from and to must be set")
+	ErrReadModelUnavailable = errors.New("measurements read model unavailable")
 )
 
 type GetMeasurements struct {

@@ -70,6 +70,8 @@ func mapQueryError(err error) error {
 		errors.Is(err, query.ErrInvalidTimeRange),
 		errors.Is(err, query.ErrTimestampZero):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, query.ErrReadModelUnavailable):
+		return status.Error(codes.Unavailable, "measurements read model unavailable")
 	default:
 		return status.Error(codes.Internal, "get measurements failed")
 	}
