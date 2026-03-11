@@ -2,11 +2,14 @@ package influxdb
 
 import (
 	"errors"
-	"sync"
 	"time"
+
+	"github.com/sony/gobreaker/v2"
+
+	"stellar/internal/measurements/app/query"
 )
 
-var ErrCircuitOpen = errors.New("influxdb circuit breaker is open")
+var ErrCircuitOpen = gobreaker.ErrOpenState
 
 type CircuitBreakerConfig struct {
 	FailureThreshold    int
@@ -15,34 +18,24 @@ type CircuitBreakerConfig struct {
 }
 
 type circuitBreaker struct {
-	mu                  sync.Mutex
-	state               circuitBreakerState
-	consecutiveFailures int
-	openedAt            time.Time
-	halfOpenInFlight    int
-	failureThreshold    int
-	openTimeout         time.Duration
-	halfOpenMaxRequests int
-	clock               func() time.Time
+	breaker *gobreaker.TwoStepCircuitBreaker[struct{}]
 }
-
-type circuitBreakerState uint8
-
-const (
-	circuitBreakerClosed circuitBreakerState = iota
-	circuitBreakerOpen
-	circuitBreakerHalfOpen
-)
 
 func newCircuitBreaker(cfg CircuitBreakerConfig) *circuitBreaker {
 	cfg = cfg.withDefaults()
 
 	return &circuitBreaker{
-		state:               circuitBreakerClosed,
-		failureThreshold:    cfg.FailureThreshold,
-		openTimeout:         cfg.OpenTimeout,
-		halfOpenMaxRequests: cfg.HalfOpenMaxRequests,
-		clock:               time.Now,
+		breaker: gobreaker.NewTwoStepCircuitBreaker[struct{}](gobreaker.Settings{
+			Name:        "measurements-influxdb",
+			MaxRequests: uint32(cfg.HalfOpenMaxRequests),
+			Timeout:     cfg.OpenTimeout,
+			ReadyToTrip: func(counts gobreaker.Counts) bool {
+				return counts.ConsecutiveFailures >= uint32(cfg.FailureThreshold)
+			},
+			IsExcluded: func(err error) bool {
+				return err != nil && !errors.Is(err, query.ErrReadModelUnavailable)
+			},
+		}),
 	}
 }
 
@@ -60,63 +53,14 @@ func (c CircuitBreakerConfig) withDefaults() CircuitBreakerConfig {
 	return c
 }
 
-func (b *circuitBreaker) allow() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	now := b.clock()
-
-	switch b.state {
-	case circuitBreakerOpen:
-		if now.Sub(b.openedAt) < b.openTimeout {
-			return ErrCircuitOpen
-		}
-
-		b.state = circuitBreakerHalfOpen
-		b.halfOpenInFlight = 0
-	case circuitBreakerHalfOpen:
-		if b.halfOpenInFlight >= b.halfOpenMaxRequests {
-			return ErrCircuitOpen
-		}
-	}
-
-	if b.state == circuitBreakerHalfOpen {
-		b.halfOpenInFlight++
-	}
-
-	return nil
+func (b *circuitBreaker) allow() (func(error), error) {
+	return b.breaker.Allow()
 }
 
-func (b *circuitBreaker) onSuccess() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.state = circuitBreakerClosed
-	b.consecutiveFailures = 0
-	b.halfOpenInFlight = 0
-	b.openedAt = time.Time{}
+func (b *circuitBreaker) state() gobreaker.State {
+	return b.breaker.State()
 }
 
-func (b *circuitBreaker) onFailure() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	switch b.state {
-	case circuitBreakerHalfOpen:
-		b.open()
-	case circuitBreakerClosed:
-		b.consecutiveFailures++
-		if b.consecutiveFailures >= b.failureThreshold {
-			b.open()
-		}
-	case circuitBreakerOpen:
-		b.open()
-	}
-}
-
-func (b *circuitBreaker) open() {
-	b.state = circuitBreakerOpen
-	b.consecutiveFailures = 0
-	b.halfOpenInFlight = 0
-	b.openedAt = b.clock()
+func (b *circuitBreaker) counts() gobreaker.Counts {
+	return b.breaker.Counts()
 }

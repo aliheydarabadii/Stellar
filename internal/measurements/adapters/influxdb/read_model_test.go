@@ -216,11 +216,10 @@ func TestReadModelGetMeasurementsOpensCircuitAfterThreshold(t *testing.T) {
 		query:  executor,
 		breaker: newCircuitBreaker(CircuitBreakerConfig{
 			FailureThreshold:    2,
-			OpenTimeout:         time.Minute,
+			OpenTimeout:         20 * time.Millisecond,
 			HalfOpenMaxRequests: 1,
 		}),
 	}
-	model.breaker.clock = func() time.Time { return now }
 
 	for range 2 {
 		_, _ = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
@@ -248,13 +247,14 @@ func TestReadModelGetMeasurementsHalfOpenClosesOnSuccess(t *testing.T) {
 		query:  executor,
 		breaker: newCircuitBreaker(CircuitBreakerConfig{
 			FailureThreshold:    1,
-			OpenTimeout:         time.Second,
+			OpenTimeout:         20 * time.Millisecond,
 			HalfOpenMaxRequests: 1,
 		}),
 	}
-	model.breaker.clock = func() time.Time { return now }
 
 	_, _ = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
+
+	waitForBreakerTimeout(t, 20*time.Millisecond)
 
 	now = now.Add(2 * time.Second)
 	executor.err = nil
@@ -294,11 +294,10 @@ func TestReadModelGetMeasurementsTripsCircuitOnIteratorError(t *testing.T) {
 		},
 		breaker: newCircuitBreaker(CircuitBreakerConfig{
 			FailureThreshold:    1,
-			OpenTimeout:         time.Minute,
+			OpenTimeout:         20 * time.Millisecond,
 			HalfOpenMaxRequests: 1,
 		}),
 	}
-	model.breaker.clock = func() time.Time { return now }
 
 	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
 	if !errors.Is(err, query.ErrReadModelUnavailable) {

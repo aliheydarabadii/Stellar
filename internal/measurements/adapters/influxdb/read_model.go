@@ -57,37 +57,36 @@ func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, t
 		defer cancel()
 	}
 
+	loadMeasurements := func() ([]query.MeasurementPoint, error) {
+		records, err := r.query.Query(ctx, buildMeasurementsQuery(r.bucket, assetID, from, to))
+		if err != nil {
+			return nil, fmt.Errorf("%w: query influxdb: %w", query.ErrReadModelUnavailable, err)
+		}
+
+		points, err := mapRecordsToPoints(records)
+		if err != nil {
+			return nil, fmt.Errorf("map influxdb records: %w", err)
+		}
+
+		if err := records.Err(); err != nil {
+			return nil, fmt.Errorf("%w: iterate influxdb records: %w", query.ErrReadModelUnavailable, err)
+		}
+
+		return points, nil
+	}
+
 	if r.breaker != nil {
-		if err := r.breaker.allow(); err != nil {
+		done, err := r.breaker.allow()
+		if err != nil {
 			return nil, fmt.Errorf("%w: %w", query.ErrReadModelUnavailable, err)
 		}
+
+		points, err := loadMeasurements()
+		done(err)
+		return points, err
 	}
 
-	records, err := r.query.Query(ctx, buildMeasurementsQuery(r.bucket, assetID, from, to))
-	if err != nil {
-		if r.breaker != nil {
-			r.breaker.onFailure()
-		}
-		return nil, fmt.Errorf("%w: query influxdb: %w", query.ErrReadModelUnavailable, err)
-	}
-
-	points, err := mapRecordsToPoints(records)
-	if err != nil {
-		return nil, fmt.Errorf("map influxdb records: %w", err)
-	}
-
-	if err := records.Err(); err != nil {
-		if r.breaker != nil {
-			r.breaker.onFailure()
-		}
-		return nil, fmt.Errorf("%w: iterate influxdb records: %w", query.ErrReadModelUnavailable, err)
-	}
-
-	if r.breaker != nil {
-		r.breaker.onSuccess()
-	}
-
-	return points, nil
+	return loadMeasurements()
 }
 
 func buildMeasurementsQuery(bucket, assetID string, from, to time.Time) string {

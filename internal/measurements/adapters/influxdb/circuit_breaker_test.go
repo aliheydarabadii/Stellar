@@ -4,47 +4,44 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	gobreaker "github.com/sony/gobreaker/v2"
+
+	"stellar/internal/measurements/app/query"
 )
 
 func TestCircuitBreakerOpensAfterFailureThreshold(t *testing.T) {
 	t.Parallel()
 
-	breaker, clock := newTestCircuitBreaker(CircuitBreakerConfig{
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
 		FailureThreshold:    2,
-		OpenTimeout:         time.Minute,
+		OpenTimeout:         20 * time.Millisecond,
 		HalfOpenMaxRequests: 1,
 	})
 
-	if err := breaker.allow(); err != nil {
-		t.Fatalf("expected closed breaker to allow, got %v", err)
+	reportFailure(t, breaker)
+	if breaker.state() != gobreaker.StateClosed {
+		t.Fatalf("expected breaker to remain closed after first failure, got %v", breaker.state())
 	}
 
-	breaker.onFailure()
-	if breaker.state != circuitBreakerClosed {
-		t.Fatalf("expected breaker to remain closed after first failure, got %v", breaker.state)
-	}
-
-	breaker.onFailure()
-	if breaker.state != circuitBreakerOpen {
-		t.Fatalf("expected breaker to open after threshold, got %v", breaker.state)
-	}
-	if !breaker.openedAt.Equal(*clock) {
-		t.Fatalf("expected openedAt %v, got %v", *clock, breaker.openedAt)
+	reportFailure(t, breaker)
+	if breaker.state() != gobreaker.StateOpen {
+		t.Fatalf("expected breaker to open after threshold, got %v", breaker.state())
 	}
 }
 
 func TestCircuitBreakerBlocksRequestsWhileOpen(t *testing.T) {
 	t.Parallel()
 
-	breaker, _ := newTestCircuitBreaker(CircuitBreakerConfig{
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
 		FailureThreshold:    1,
-		OpenTimeout:         time.Minute,
+		OpenTimeout:         20 * time.Millisecond,
 		HalfOpenMaxRequests: 1,
 	})
 
-	breaker.onFailure()
+	reportFailure(t, breaker)
 
-	err := breaker.allow()
+	_, err := breaker.allow()
 	if !errors.Is(err, ErrCircuitOpen) {
 		t.Fatalf("expected ErrCircuitOpen, got %v", err)
 	}
@@ -53,87 +50,165 @@ func TestCircuitBreakerBlocksRequestsWhileOpen(t *testing.T) {
 func TestCircuitBreakerTransitionsToHalfOpenAfterTimeout(t *testing.T) {
 	t.Parallel()
 
-	breaker, clock := newTestCircuitBreaker(CircuitBreakerConfig{
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
 		FailureThreshold:    1,
-		OpenTimeout:         10 * time.Second,
+		OpenTimeout:         20 * time.Millisecond,
 		HalfOpenMaxRequests: 1,
 	})
 
-	breaker.onFailure()
-	*clock = (*clock).Add(11 * time.Second)
+	reportFailure(t, breaker)
+	waitForBreakerTimeout(t, 20*time.Millisecond)
 
-	if err := breaker.allow(); err != nil {
+	done, err := breaker.allow()
+	if err != nil {
 		t.Fatalf("expected half-open trial request to be allowed, got %v", err)
 	}
-	if breaker.state != circuitBreakerHalfOpen {
-		t.Fatalf("expected breaker to transition to half-open, got %v", breaker.state)
+	if breaker.state() != gobreaker.StateHalfOpen {
+		t.Fatalf("expected breaker to transition to half-open, got %v", breaker.state())
 	}
-	if breaker.halfOpenInFlight != 1 {
-		t.Fatalf("expected one in-flight half-open request, got %d", breaker.halfOpenInFlight)
-	}
+
+	done(nil)
 }
 
 func TestCircuitBreakerClosesAgainAfterSuccessfulHalfOpenTrial(t *testing.T) {
 	t.Parallel()
 
-	breaker, clock := newTestCircuitBreaker(CircuitBreakerConfig{
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
 		FailureThreshold:    1,
-		OpenTimeout:         10 * time.Second,
+		OpenTimeout:         20 * time.Millisecond,
 		HalfOpenMaxRequests: 1,
 	})
 
-	breaker.onFailure()
-	*clock = (*clock).Add(11 * time.Second)
+	reportFailure(t, breaker)
+	waitForBreakerTimeout(t, 20*time.Millisecond)
 
-	if err := breaker.allow(); err != nil {
+	done, err := breaker.allow()
+	if err != nil {
 		t.Fatalf("expected half-open trial request to be allowed, got %v", err)
 	}
 
-	breaker.onSuccess()
+	done(nil)
 
-	if breaker.state != circuitBreakerClosed {
-		t.Fatalf("expected breaker to close after success, got %v", breaker.state)
+	if breaker.state() != gobreaker.StateClosed {
+		t.Fatalf("expected breaker to close after success, got %v", breaker.state())
 	}
-	if breaker.halfOpenInFlight != 0 {
-		t.Fatalf("expected half-open in-flight count to reset, got %d", breaker.halfOpenInFlight)
+}
+
+func TestCircuitBreakerRequiresAllHalfOpenProbeSuccessesBeforeClosing(t *testing.T) {
+	t.Parallel()
+
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold:    1,
+		OpenTimeout:         20 * time.Millisecond,
+		HalfOpenMaxRequests: 2,
+	})
+
+	reportFailure(t, breaker)
+	waitForBreakerTimeout(t, 20*time.Millisecond)
+
+	done1, err := breaker.allow()
+	if err != nil {
+		t.Fatalf("expected first half-open probe to be allowed, got %v", err)
 	}
-	if breaker.consecutiveFailures != 0 {
-		t.Fatalf("expected consecutive failures to reset, got %d", breaker.consecutiveFailures)
+	done2, err := breaker.allow()
+	if err != nil {
+		t.Fatalf("expected second half-open probe to be allowed, got %v", err)
+	}
+	if _, err := breaker.allow(); !errors.Is(err, gobreaker.ErrTooManyRequests) {
+		t.Fatalf("expected third half-open probe to be rejected, got %v", err)
+	}
+
+	done1(nil)
+	if breaker.state() != gobreaker.StateHalfOpen {
+		t.Fatalf("expected breaker to remain half-open after first success, got %v", breaker.state())
+	}
+
+	done2(nil)
+	if breaker.state() != gobreaker.StateClosed {
+		t.Fatalf("expected breaker to close after second success, got %v", breaker.state())
 	}
 }
 
 func TestCircuitBreakerFailureCountResetsAfterSuccess(t *testing.T) {
 	t.Parallel()
 
-	breaker, _ := newTestCircuitBreaker(CircuitBreakerConfig{
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
 		FailureThreshold:    3,
-		OpenTimeout:         time.Minute,
+		OpenTimeout:         20 * time.Millisecond,
 		HalfOpenMaxRequests: 1,
 	})
 
-	breaker.onFailure()
-	breaker.onFailure()
-	if breaker.consecutiveFailures != 2 {
-		t.Fatalf("expected two consecutive failures, got %d", breaker.consecutiveFailures)
+	reportFailure(t, breaker)
+	reportFailure(t, breaker)
+	if breaker.counts().ConsecutiveFailures != 2 {
+		t.Fatalf("expected two consecutive failures, got %d", breaker.counts().ConsecutiveFailures)
 	}
 
-	breaker.onSuccess()
-	if breaker.consecutiveFailures != 0 {
-		t.Fatalf("expected failure count reset after success, got %d", breaker.consecutiveFailures)
+	reportSuccess(t, breaker)
+	if breaker.counts().ConsecutiveFailures != 0 {
+		t.Fatalf("expected failure count reset after success, got %d", breaker.counts().ConsecutiveFailures)
 	}
-
-	breaker.onFailure()
-	if breaker.state != circuitBreakerClosed {
-		t.Fatalf("expected breaker to stay closed after first failure post-reset, got %v", breaker.state)
-	}
-	if breaker.consecutiveFailures != 1 {
-		t.Fatalf("expected failure count to restart at 1, got %d", breaker.consecutiveFailures)
+	if breaker.counts().ConsecutiveSuccesses != 1 {
+		t.Fatalf("expected one consecutive success, got %d", breaker.counts().ConsecutiveSuccesses)
 	}
 }
 
-func newTestCircuitBreaker(cfg CircuitBreakerConfig) (*circuitBreaker, *time.Time) {
-	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	breaker := newCircuitBreaker(cfg)
-	breaker.clock = func() time.Time { return now }
-	return breaker, &now
+func TestCircuitBreakerExcludesNonDependencyErrors(t *testing.T) {
+	t.Parallel()
+
+	breaker := newTestCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold:    1,
+		OpenTimeout:         20 * time.Millisecond,
+		HalfOpenMaxRequests: 1,
+	})
+
+	done, err := breaker.allow()
+	if err != nil {
+		t.Fatalf("expected breaker to allow request, got %v", err)
+	}
+
+	done(errors.New("mapping failed"))
+
+	if breaker.state() != gobreaker.StateClosed {
+		t.Fatalf("expected breaker to remain closed after excluded error, got %v", breaker.state())
+	}
+	counts := breaker.counts()
+	if counts.TotalFailures != 0 || counts.ConsecutiveFailures != 0 {
+		t.Fatalf("expected excluded error not to count as a failure, got %+v", counts)
+	}
+	if counts.TotalExclusions != 1 {
+		t.Fatalf("expected one exclusion to be recorded, got %+v", counts)
+	}
+}
+
+func newTestCircuitBreaker(cfg CircuitBreakerConfig) *circuitBreaker {
+	return newCircuitBreaker(cfg)
+}
+
+func reportFailure(t *testing.T, breaker *circuitBreaker) {
+	t.Helper()
+
+	done, err := breaker.allow()
+	if err != nil {
+		t.Fatalf("expected breaker to allow request, got %v", err)
+	}
+
+	done(query.ErrReadModelUnavailable)
+}
+
+func reportSuccess(t *testing.T, breaker *circuitBreaker) {
+	t.Helper()
+
+	done, err := breaker.allow()
+	if err != nil {
+		t.Fatalf("expected breaker to allow request, got %v", err)
+	}
+
+	done(nil)
+}
+
+func waitForBreakerTimeout(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	time.Sleep(timeout + 20*time.Millisecond)
 }
