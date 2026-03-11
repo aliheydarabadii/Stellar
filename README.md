@@ -62,6 +62,15 @@ The service reads configuration from environment variables:
 
 ## Running
 
+Common commands:
+
+```bash
+make proto
+make run-measurements
+make test
+make test-integration
+```
+
 1. Generate protobuf code when the contract changes:
 
 ```bash
