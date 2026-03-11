@@ -14,10 +14,15 @@ type Commands struct {
 	CollectTelemetry command.CollectTelemetryHandler
 }
 
-func NewApplication(assetID domain.AssetID, source command.TelemetrySource, repository command.MeasurementRepository) Application {
+func NewApplication(assetID domain.AssetID, source command.TelemetrySource, repository command.MeasurementRepository) (Application, error) {
+	collectTelemetry, err := command.NewCollectTelemetryHandler(assetID, source, repository)
+	if err != nil {
+		return Application{}, err
+	}
+
 	return Application{
 		Commands: Commands{
-			CollectTelemetry: command.NewCollectTelemetryHandler(assetID, source, repository),
+			CollectTelemetry: collectTelemetry,
 		},
-	}
+	}, nil
 }

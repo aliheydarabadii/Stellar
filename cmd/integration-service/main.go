@@ -89,7 +89,10 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) (runErr error) {
 	}()
 	instrumentedRepository := ports.InstrumentMeasurementRepository(repository, metrics, tracer)
 
-	application := app.NewApplication(cfg.AssetID, instrumentedSource, instrumentedRepository)
+	application, err := app.NewApplication(cfg.AssetID, instrumentedSource, instrumentedRepository)
+	if err != nil {
+		return fmt.Errorf("create application: %w", err)
+	}
 
 	worker, err := ports.NewTickerWorker(cfg.PollInterval, application.Commands.CollectTelemetry, logger, metrics, readiness, tracer)
 	if err != nil {

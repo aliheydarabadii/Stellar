@@ -34,7 +34,9 @@ func (s *CollectTelemetryHandlerSuite) SetupTest() {
 	s.collectedAt = time.Date(2026, time.March, 9, 12, 0, 0, 0, time.UTC)
 	s.source = commandmocks.NewTelemetrySource(s.T())
 	s.repository = commandmocks.NewMeasurementRepository(s.T())
-	s.handler = command.NewCollectTelemetryHandler(domain.DefaultAssetID, s.source, s.repository)
+	var err error
+	s.handler, err = command.NewCollectTelemetryHandler(domain.DefaultAssetID, s.source, s.repository)
+	s.Require().NoError(err)
 }
 
 func (s *CollectTelemetryHandlerSuite) TestValidReadingGetsSaved() {
@@ -104,4 +106,46 @@ func (s *CollectTelemetryHandlerSuite) TestRepositoryErrorIsReturned() {
 	s.Error(err)
 	s.ErrorIs(err, command.ErrMeasurementPersistence)
 	s.ErrorIs(err, repositoryErr)
+}
+
+func (s *CollectTelemetryHandlerSuite) TestNewCollectTelemetryHandlerRejectsInvalidArguments() {
+	testCases := []struct {
+		name       string
+		assetID    domain.AssetID
+		source     command.TelemetrySource
+		repository command.MeasurementRepository
+		wantErr    error
+	}{
+		{
+			name:       "empty asset id",
+			assetID:    "",
+			source:     s.source,
+			repository: s.repository,
+			wantErr:    command.ErrEmptyAssetID,
+		},
+		{
+			name:       "nil source",
+			assetID:    domain.DefaultAssetID,
+			source:     nil,
+			repository: s.repository,
+			wantErr:    command.ErrNilTelemetrySource,
+		},
+		{
+			name:       "nil repository",
+			assetID:    domain.DefaultAssetID,
+			source:     s.source,
+			repository: nil,
+			wantErr:    command.ErrNilMeasurementRepository,
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			handler, err := command.NewCollectTelemetryHandler(tc.assetID, tc.source, tc.repository)
+
+			s.Error(err)
+			s.ErrorIs(err, tc.wantErr)
+			s.Equal(command.CollectTelemetryHandler{}, handler)
+		})
+	}
 }

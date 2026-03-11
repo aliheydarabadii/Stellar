@@ -15,6 +15,12 @@ var ErrTelemetrySource = errors.New("telemetry source")
 
 var ErrMeasurementPersistence = errors.New("measurement persistence")
 
+var ErrEmptyAssetID = errors.New("asset id must not be empty")
+
+var ErrNilTelemetrySource = errors.New("telemetry source must not be nil")
+
+var ErrNilMeasurementRepository = errors.New("measurement repository must not be nil")
+
 type CollectTelemetry struct {
 	CollectedAt time.Time
 }
@@ -38,12 +44,21 @@ type CollectTelemetryHandler struct {
 	repository MeasurementRepository
 }
 
-func NewCollectTelemetryHandler(assetID domain.AssetID, source TelemetrySource, repository MeasurementRepository) CollectTelemetryHandler {
+func NewCollectTelemetryHandler(assetID domain.AssetID, source TelemetrySource, repository MeasurementRepository) (CollectTelemetryHandler, error) {
+	switch {
+	case assetID == "":
+		return CollectTelemetryHandler{}, ErrEmptyAssetID
+	case source == nil:
+		return CollectTelemetryHandler{}, ErrNilTelemetrySource
+	case repository == nil:
+		return CollectTelemetryHandler{}, ErrNilMeasurementRepository
+	}
+
 	return CollectTelemetryHandler{
 		assetID:    assetID,
 		source:     source,
 		repository: repository,
-	}
+	}, nil
 }
 
 func (h CollectTelemetryHandler) Handle(ctx context.Context, cmd CollectTelemetry) error {
