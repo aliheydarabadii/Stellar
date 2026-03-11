@@ -81,16 +81,31 @@ func TestLoadConfigFailsWhenRequiredInfluxEnvMissing(t *testing.T) {
 	}
 }
 
-func TestLoadConfigFailsOnInvalidDuration(t *testing.T) {
-	setValidEnv(t)
-	t.Setenv("QUERY_TIMEOUT", "not-a-duration")
-
-	_, err := loadConfig()
-	if err == nil {
-		t.Fatal("expected error, got nil")
+func TestLoadConfigFailsOnInvalidQueryTimeout(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "invalid duration", value: "not-a-duration", want: "parse QUERY_TIMEOUT"},
+		{name: "zero duration", value: "0s", want: "QUERY_TIMEOUT must be positive"},
+		{name: "negative duration", value: "-5s", want: "QUERY_TIMEOUT must be positive"},
 	}
-	if !strings.Contains(err.Error(), "parse QUERY_TIMEOUT") {
-		t.Fatalf("expected QUERY_TIMEOUT parse error, got %v", err)
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv("QUERY_TIMEOUT", tc.value)
+
+			_, err := loadConfig()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
 	}
 }
 

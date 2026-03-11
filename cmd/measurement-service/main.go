@@ -171,6 +171,9 @@ func loadConfig() (config, error) {
 		if err != nil {
 			return config{}, fmt.Errorf("parse QUERY_TIMEOUT: %w", err)
 		}
+		if timeout <= 0 {
+			return config{}, errors.New("QUERY_TIMEOUT must be positive")
+		}
 		cfg.QueryTimeout = timeout
 	}
 

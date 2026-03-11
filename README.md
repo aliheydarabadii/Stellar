@@ -56,7 +56,7 @@ The service reads configuration from environment variables:
 - `GRPC_LISTEN_ADDR`: gRPC listen address, default `:9090`
 - `HEALTH_LISTEN_ADDR`: health HTTP listen address, default `:8080`
 - `MAX_QUERY_RANGE`: optional maximum request window, default `15m`
-- `QUERY_TIMEOUT`: optional query timeout duration, default `10s`
+- `QUERY_TIMEOUT`: optional positive query timeout duration, default `10s`
 - `INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD`: optional consecutive failure threshold before opening the breaker, default `5`
 - `INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT`: optional time the breaker stays open before half-open probe requests are allowed, default `30s`
 - `INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS`: optional max concurrent probe requests in half-open state, default `1`
