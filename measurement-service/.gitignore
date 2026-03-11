@@ -1,0 +1,21 @@
+.DS_Store
+
+# IDE settings
+.idea/
+.vscode/
+
+# Local environment files
+.env
+.env.*
+
+# Go build and test artifacts
+.cache/
+bin/
+dist/
+*.out
+*.test
+coverage.out
+coverage.*
+
+# Vendored dependencies are not tracked for this service
+vendor/

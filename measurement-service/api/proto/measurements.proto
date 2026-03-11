@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package measurements.v1;
+
+option go_package = "stellar/api/proto;measurementsv1";
+
+import "google/protobuf/timestamp.proto";
+
+service MeasurementService {
+  rpc GetMeasurements(GetMeasurementsRequest) returns (GetMeasurementsResponse);
+}
+
+message GetMeasurementsRequest {
+  string asset_id = 1;
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+}
+
+message MeasurementPoint {
+  google.protobuf.Timestamp timestamp = 1;
+  double setpoint = 2;
+  double active_power = 3;
+}
+
+message GetMeasurementsResponse {
+  string asset_id = 1;
+  repeated MeasurementPoint points = 2;
+}
