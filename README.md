@@ -54,6 +54,12 @@ The service reads configuration from environment variables:
 - `INFLUX_BUCKET`: InfluxDB bucket, required
 - `INFLUX_TOKEN`: InfluxDB token, required
 - `GRPC_LISTEN_ADDR`: gRPC listen address, default `:9090`
+- `GRPC_CONNECTION_TIMEOUT`: gRPC connection timeout, default `5s`
+- `GRPC_MAX_RECV_MSG_SIZE_BYTES`: gRPC max receive message size, default `4194304`
+- `GRPC_MAX_SEND_MSG_SIZE_BYTES`: gRPC max send message size, default `4194304`
+- `GRPC_KEEPALIVE_TIME`: gRPC keepalive ping interval, default `2m`
+- `GRPC_KEEPALIVE_TIMEOUT`: gRPC keepalive timeout, default `20s`
+- `GRPC_KEEPALIVE_MIN_TIME`: minimum client keepalive interval allowed by the server, default `1m`
 - `HEALTH_LISTEN_ADDR`: health HTTP listen address, default `:8080`
 - `MAX_QUERY_RANGE`: optional maximum request window, default `15m`
 - `QUERY_TIMEOUT`: optional positive query timeout duration, default `10s`
@@ -92,6 +98,8 @@ The service starts:
 
 - a gRPC server on `GRPC_LISTEN_ADDR`
 - an HTTP health server with `/healthz` and `/readyz` on `HEALTH_LISTEN_ADDR`
+
+The gRPC server includes panic recovery and returns `Internal` instead of crashing the process if a handler panics.
 
 ## Assumptions
 

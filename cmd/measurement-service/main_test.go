@@ -18,6 +18,12 @@ func TestConfigSuite(t *testing.T) {
 
 func (s *ConfigSuite) TestLoadConfigSuccess() {
 	setValidEnv(s.T())
+	s.T().Setenv("GRPC_CONNECTION_TIMEOUT", "7s")
+	s.T().Setenv("GRPC_MAX_RECV_MSG_SIZE_BYTES", "8388608")
+	s.T().Setenv("GRPC_MAX_SEND_MSG_SIZE_BYTES", "16777216")
+	s.T().Setenv("GRPC_KEEPALIVE_TIME", "3m")
+	s.T().Setenv("GRPC_KEEPALIVE_TIMEOUT", "25s")
+	s.T().Setenv("GRPC_KEEPALIVE_MIN_TIME", "90s")
 	s.T().Setenv("MAX_QUERY_RANGE", "20m")
 	s.T().Setenv("QUERY_TIMEOUT", "15s")
 	s.T().Setenv("INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "7")
@@ -28,6 +34,12 @@ func (s *ConfigSuite) TestLoadConfigSuccess() {
 	s.Require().NoError(err)
 
 	s.Equal("http://localhost:8086", cfg.InfluxURL)
+	s.Equal(7*time.Second, cfg.GRPCConnectionTimeout)
+	s.Equal(8*1024*1024, cfg.GRPCMaxRecvMsgSizeBytes)
+	s.Equal(16*1024*1024, cfg.GRPCMaxSendMsgSizeBytes)
+	s.Equal(3*time.Minute, cfg.GRPCKeepaliveTime)
+	s.Equal(25*time.Second, cfg.GRPCKeepaliveTimeout)
+	s.Equal(90*time.Second, cfg.GRPCKeepaliveMinTime)
 	s.Equal(20*time.Minute, cfg.MaxQueryRange)
 	s.Equal(15*time.Second, cfg.QueryTimeout)
 	s.Equal(7, cfg.InfluxCircuitBreakerFailureThreshold)
@@ -42,6 +54,12 @@ func (s *ConfigSuite) TestLoadConfigUsesDefaults() {
 	s.Require().NoError(err)
 
 	s.Equal(":9090", cfg.GRPCListenAddr)
+	s.Equal(5*time.Second, cfg.GRPCConnectionTimeout)
+	s.Equal(4*1024*1024, cfg.GRPCMaxRecvMsgSizeBytes)
+	s.Equal(4*1024*1024, cfg.GRPCMaxSendMsgSizeBytes)
+	s.Equal(2*time.Minute, cfg.GRPCKeepaliveTime)
+	s.Equal(20*time.Second, cfg.GRPCKeepaliveTimeout)
+	s.Equal(1*time.Minute, cfg.GRPCKeepaliveMinTime)
 	s.Equal(":8080", cfg.HealthListenAddr)
 	s.Equal(15*time.Minute, cfg.MaxQueryRange)
 	s.Equal(10*time.Second, cfg.QueryTimeout)
@@ -68,6 +86,58 @@ func (s *ConfigSuite) TestLoadConfigFailsWhenRequiredInfluxEnvMissing() {
 			_, err := loadConfig()
 			s.Require().Error(err)
 			s.Equal(tc.wantErr, err.Error())
+		})
+	}
+}
+
+func (s *ConfigSuite) TestLoadConfigFailsOnInvalidGRPCServerSettings() {
+	testCases := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{
+			name:  "connection timeout parse",
+			key:   "GRPC_CONNECTION_TIMEOUT",
+			value: "not-a-duration",
+			want:  "parse GRPC_CONNECTION_TIMEOUT",
+		},
+		{
+			name:  "connection timeout positive",
+			key:   "GRPC_CONNECTION_TIMEOUT",
+			value: "0s",
+			want:  "GRPC_CONNECTION_TIMEOUT must be positive",
+		},
+		{
+			name:  "max recv size parse",
+			key:   "GRPC_MAX_RECV_MSG_SIZE_BYTES",
+			value: "abc",
+			want:  "parse GRPC_MAX_RECV_MSG_SIZE_BYTES",
+		},
+		{
+			name:  "max send size positive",
+			key:   "GRPC_MAX_SEND_MSG_SIZE_BYTES",
+			value: "0",
+			want:  "GRPC_MAX_SEND_MSG_SIZE_BYTES must be positive",
+		},
+		{
+			name:  "keepalive min time positive",
+			key:   "GRPC_KEEPALIVE_MIN_TIME",
+			value: "-1s",
+			want:  "GRPC_KEEPALIVE_MIN_TIME must be positive",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		s.Run(tc.name, func() {
+			setValidEnv(s.T())
+			s.T().Setenv(tc.key, tc.value)
+
+			_, err := loadConfig()
+			s.Require().Error(err)
+			s.Contains(err.Error(), tc.want)
 		})
 	}
 }

@@ -14,6 +14,12 @@ type config struct {
 	InfluxBucket                            string        `env:"INFLUX_BUCKET"`
 	InfluxToken                             string        `env:"INFLUX_TOKEN"`
 	GRPCListenAddr                          string        `env:"GRPC_LISTEN_ADDR" envDefault:":9090"`
+	GRPCConnectionTimeout                   time.Duration `env:"GRPC_CONNECTION_TIMEOUT" envDefault:"5s"`
+	GRPCMaxRecvMsgSizeBytes                 int           `env:"GRPC_MAX_RECV_MSG_SIZE_BYTES" envDefault:"4194304"`
+	GRPCMaxSendMsgSizeBytes                 int           `env:"GRPC_MAX_SEND_MSG_SIZE_BYTES" envDefault:"4194304"`
+	GRPCKeepaliveTime                       time.Duration `env:"GRPC_KEEPALIVE_TIME" envDefault:"2m"`
+	GRPCKeepaliveTimeout                    time.Duration `env:"GRPC_KEEPALIVE_TIMEOUT" envDefault:"20s"`
+	GRPCKeepaliveMinTime                    time.Duration `env:"GRPC_KEEPALIVE_MIN_TIME" envDefault:"1m"`
 	HealthListenAddr                        string        `env:"HEALTH_LISTEN_ADDR" envDefault:":8080"`
 	MaxQueryRange                           time.Duration `env:"MAX_QUERY_RANGE" envDefault:"15m"`
 	QueryTimeout                            time.Duration `env:"QUERY_TIMEOUT" envDefault:"10s"`
@@ -45,6 +51,18 @@ func validateConfig(cfg config) error {
 		return errors.New("INFLUX_BUCKET is required")
 	case cfg.InfluxToken == "":
 		return errors.New("INFLUX_TOKEN is required")
+	case cfg.GRPCConnectionTimeout <= 0:
+		return errors.New("GRPC_CONNECTION_TIMEOUT must be positive")
+	case cfg.GRPCMaxRecvMsgSizeBytes <= 0:
+		return errors.New("GRPC_MAX_RECV_MSG_SIZE_BYTES must be positive")
+	case cfg.GRPCMaxSendMsgSizeBytes <= 0:
+		return errors.New("GRPC_MAX_SEND_MSG_SIZE_BYTES must be positive")
+	case cfg.GRPCKeepaliveTime <= 0:
+		return errors.New("GRPC_KEEPALIVE_TIME must be positive")
+	case cfg.GRPCKeepaliveTimeout <= 0:
+		return errors.New("GRPC_KEEPALIVE_TIMEOUT must be positive")
+	case cfg.GRPCKeepaliveMinTime <= 0:
+		return errors.New("GRPC_KEEPALIVE_MIN_TIME must be positive")
 	case cfg.MaxQueryRange <= 0:
 		return errors.New("MAX_QUERY_RANGE must be positive")
 	case cfg.QueryTimeout <= 0:
@@ -81,6 +99,18 @@ func configFieldEnvName(fieldName string) string {
 		return "INFLUX_TOKEN"
 	case "GRPCListenAddr":
 		return "GRPC_LISTEN_ADDR"
+	case "GRPCConnectionTimeout":
+		return "GRPC_CONNECTION_TIMEOUT"
+	case "GRPCMaxRecvMsgSizeBytes":
+		return "GRPC_MAX_RECV_MSG_SIZE_BYTES"
+	case "GRPCMaxSendMsgSizeBytes":
+		return "GRPC_MAX_SEND_MSG_SIZE_BYTES"
+	case "GRPCKeepaliveTime":
+		return "GRPC_KEEPALIVE_TIME"
+	case "GRPCKeepaliveTimeout":
+		return "GRPC_KEEPALIVE_TIMEOUT"
+	case "GRPCKeepaliveMinTime":
+		return "GRPC_KEEPALIVE_MIN_TIME"
 	case "HealthListenAddr":
 		return "HEALTH_LISTEN_ADDR"
 	case "MaxQueryRange":

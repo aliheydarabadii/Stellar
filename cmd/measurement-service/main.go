@@ -16,7 +16,6 @@ import (
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"google.golang.org/grpc"
 
-	measurementsv1 "stellar/api/proto"
 	"stellar/internal/measurements/adapters/influxdb"
 	"stellar/internal/measurements/app"
 	"stellar/internal/measurements/ports"
@@ -54,8 +53,14 @@ func run(logger *slog.Logger) error {
 		logger.Error("failed to initialize application", "error", err)
 		os.Exit(1)
 	}
-	grpcServer := grpc.NewServer()
-	measurementsv1.RegisterMeasurementServiceServer(grpcServer, ports.NewGRPCServer(application))
+	grpcServer := ports.NewGRPCTransport(logger, application, ports.GRPCTransportConfig{
+		ConnectionTimeout:   cfg.GRPCConnectionTimeout,
+		MaxRecvMsgSizeBytes: cfg.GRPCMaxRecvMsgSizeBytes,
+		MaxSendMsgSizeBytes: cfg.GRPCMaxSendMsgSizeBytes,
+		KeepaliveTime:       cfg.GRPCKeepaliveTime,
+		KeepaliveTimeout:    cfg.GRPCKeepaliveTimeout,
+		KeepaliveMinTime:    cfg.GRPCKeepaliveMinTime,
+	})
 
 	grpcListener, err := net.Listen("tcp", cfg.GRPCListenAddr)
 	if err != nil {
