@@ -19,6 +19,17 @@ import (
 	"api_gateway/internal/gateway/ports"
 )
 
+const (
+	defaultCacheTTL              = 5 * time.Minute
+	defaultRequestTimeout        = 10 * time.Second
+	defaultReadinessCheckTimeout = 2 * time.Second
+	defaultHTTPReadHeaderTimeout = 5 * time.Second
+	defaultHTTPReadTimeout       = 10 * time.Second
+	defaultHTTPWriteTimeout      = 15 * time.Second
+	defaultHTTPIdleTimeout       = 60 * time.Second
+	defaultHTTPMaxHeaderBytes    = 1 << 20
+)
+
 type config struct {
 	MeasurementServiceGRPCAddr string
 	HTTPListenAddr             string
@@ -29,6 +40,16 @@ type config struct {
 	RedisDB                    int
 	CacheTTL                   time.Duration
 	RequestTimeout             time.Duration
+	ReadinessCheckTimeout      time.Duration
+	HTTPReadHeaderTimeout      time.Duration
+	HTTPReadTimeout            time.Duration
+	HTTPWriteTimeout           time.Duration
+	HTTPIdleTimeout            time.Duration
+	HTTPMaxHeaderBytes         int
+}
+
+type readinessDependency interface {
+	Ready(context.Context) error
 }
 
 func main() {
@@ -77,7 +98,8 @@ func run(logger *slog.Logger) error {
 	var ready atomic.Bool
 
 	apiHandler := ports.NewHTTPHandler(application, logger, cfg.RequestTimeout)
-	healthHandler := ports.NewHealthHandler(ready.Load)
+	readinessCheck := newReadinessCheck(&ready, measurementsCache, measurementsClient)
+	healthHandler := ports.NewHealthHandler(readinessCheck, cfg.ReadinessCheckTimeout)
 
 	httpHandler := apiHandler
 	var healthServer *http.Server
@@ -88,18 +110,10 @@ func run(logger *slog.Logger) error {
 		rootMux.Handle("/", apiHandler)
 		httpHandler = rootMux
 	} else {
-		healthServer = &http.Server{
-			Addr:              cfg.HealthListenAddr,
-			Handler:           healthHandler,
-			ReadHeaderTimeout: 5 * time.Second,
-		}
+		healthServer = newHTTPServer(cfg.HealthListenAddr, healthHandler, cfg)
 	}
 
-	httpServer := &http.Server{
-		Addr:              cfg.HTTPListenAddr,
-		Handler:           httpHandler,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	httpServer := newHTTPServer(cfg.HTTPListenAddr, httpHandler, cfg)
 
 	serverErrors := make(chan error, 2)
 
@@ -162,8 +176,14 @@ func loadConfig() (config, error) {
 		RedisAddr:                  os.Getenv("REDIS_ADDR"),
 		RedisUsername:              os.Getenv("REDIS_USERNAME"),
 		RedisPassword:              os.Getenv("REDIS_PASSWORD"),
-		CacheTTL:                   5 * time.Minute,
-		RequestTimeout:             10 * time.Second,
+		CacheTTL:                   defaultCacheTTL,
+		RequestTimeout:             defaultRequestTimeout,
+		ReadinessCheckTimeout:      defaultReadinessCheckTimeout,
+		HTTPReadHeaderTimeout:      defaultHTTPReadHeaderTimeout,
+		HTTPReadTimeout:            defaultHTTPReadTimeout,
+		HTTPWriteTimeout:           defaultHTTPWriteTimeout,
+		HTTPIdleTimeout:            defaultHTTPIdleTimeout,
+		HTTPMaxHeaderBytes:         defaultHTTPMaxHeaderBytes,
 	}
 
 	if value := os.Getenv("REDIS_DB"); value != "" {
@@ -199,6 +219,72 @@ func loadConfig() (config, error) {
 		cfg.RequestTimeout = parsed
 	}
 
+	if value := os.Getenv("READINESS_CHECK_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse READINESS_CHECK_TIMEOUT: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("READINESS_CHECK_TIMEOUT must be positive")
+		}
+		cfg.ReadinessCheckTimeout = parsed
+	}
+
+	if value := os.Getenv("HTTP_READ_HEADER_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse HTTP_READ_HEADER_TIMEOUT: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("HTTP_READ_HEADER_TIMEOUT must be positive")
+		}
+		cfg.HTTPReadHeaderTimeout = parsed
+	}
+
+	if value := os.Getenv("HTTP_READ_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse HTTP_READ_TIMEOUT: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("HTTP_READ_TIMEOUT must be positive")
+		}
+		cfg.HTTPReadTimeout = parsed
+	}
+
+	if value := os.Getenv("HTTP_WRITE_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse HTTP_WRITE_TIMEOUT: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("HTTP_WRITE_TIMEOUT must be positive")
+		}
+		cfg.HTTPWriteTimeout = parsed
+	}
+
+	if value := os.Getenv("HTTP_IDLE_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse HTTP_IDLE_TIMEOUT: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("HTTP_IDLE_TIMEOUT must be positive")
+		}
+		cfg.HTTPIdleTimeout = parsed
+	}
+
+	if value := os.Getenv("HTTP_MAX_HEADER_BYTES"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return config{}, fmt.Errorf("parse HTTP_MAX_HEADER_BYTES: %w", err)
+		}
+		if parsed <= 0 {
+			return config{}, errors.New("HTTP_MAX_HEADER_BYTES must be positive")
+		}
+		cfg.HTTPMaxHeaderBytes = parsed
+	}
+
 	switch {
 	case cfg.MeasurementServiceGRPCAddr == "":
 		return config{}, errors.New("MEASUREMENT_SERVICE_GRPC_ADDR is required")
@@ -217,4 +303,35 @@ func envOrDefault(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+func newReadinessCheck(started *atomic.Bool, deps ...readinessDependency) ports.ReadinessProbe {
+	return func(ctx context.Context) error {
+		if started != nil && !started.Load() {
+			return errors.New("service is not ready")
+		}
+
+		for _, dep := range deps {
+			if dep == nil {
+				continue
+			}
+			if err := dep.Ready(ctx); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler, cfg config) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		WriteTimeout:      cfg.HTTPWriteTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
+		MaxHeaderBytes:    cfg.HTTPMaxHeaderBytes,
+	}
 }

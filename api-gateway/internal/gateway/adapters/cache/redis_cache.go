@@ -45,6 +45,18 @@ func (c *RedisCache) Close() error {
 	return c.client.Close()
 }
 
+func (c *RedisCache) Ready(ctx context.Context) error {
+	if c == nil || c.client == nil {
+		return errors.New("redis cache is not initialized")
+	}
+
+	if err := c.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("ping redis: %w", err)
+	}
+
+	return nil
+}
+
 func (c *RedisCache) Get(ctx context.Context, key string) (query.MeasurementSeries, bool, error) {
 	if c == nil || c.client == nil {
 		return query.MeasurementSeries{}, false, errors.New("redis cache is not initialized")

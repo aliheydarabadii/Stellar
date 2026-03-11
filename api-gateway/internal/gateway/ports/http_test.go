@@ -1,10 +1,14 @@
 package ports
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +117,27 @@ func TestHTTPHandlerGetMeasurementsReturnsServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerGetMeasurementsReturnsBadRequestForDownstreamInvalidArgument(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	handler := newTestHTTPHandler(t, &fakeMeasurementsClient{
+		err: query.NewDownstreamInvalidRequestError("query time range exceeds maximum allowed window"),
+	}, &fakeMeasurementsCache{})
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "query time range exceeds maximum allowed window") {
+		t.Fatalf("expected downstream validation message, got %s", rec.Body.String())
+	}
+}
+
 func TestHTTPHandlerPropagatesRequestMetadataToContextAndResponse(t *testing.T) {
 	t.Parallel()
 
@@ -209,7 +234,73 @@ func TestHTTPHandlerGeneratesRequestIDWhenMissing(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerAccessLogIncludesCacheMissAndRequestMetadata(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	client := &fakeMeasurementsClient{
+		series: query.MeasurementSeries{AssetID: "asset-1"},
+	}
+	cache := &fakeMeasurementsCache{}
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(io.MultiWriter(io.Discard, logs), nil))
+	handler := newTestHTTPHandlerWithLogger(t, client, cache, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	req.Header.Set(requestctx.RequestIDHeader, "req-123")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	logOutput := logs.String()
+	if !strings.Contains(logOutput, `"msg":"handled http request"`) {
+		t.Fatalf("expected access log, got %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"request_id":"req-123"`) {
+		t.Fatalf("expected request id in access log, got %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"status":200`) {
+		t.Fatalf("expected status in access log, got %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"cache_status":"miss"`) {
+		t.Fatalf("expected cache miss in access log, got %s", logOutput)
+	}
+}
+
+func TestHTTPHandlerAccessLogIncludesCacheHit(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	cache := &fakeMeasurementsCache{
+		series: query.MeasurementSeries{AssetID: "asset-1"},
+		found:  true,
+	}
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(io.MultiWriter(io.Discard, logs), nil))
+	handler := newTestHTTPHandlerWithLogger(t, &fakeMeasurementsClient{}, cache, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if !strings.Contains(logs.String(), `"cache_status":"hit"`) {
+		t.Fatalf("expected cache hit in access log, got %s", logs.String())
+	}
+}
+
 func newTestHTTPHandler(t *testing.T, client query.MeasurementsClient, cache query.MeasurementsCache) http.Handler {
+	return newTestHTTPHandlerWithLogger(t, client, cache, nil)
+}
+
+func newTestHTTPHandlerWithLogger(t *testing.T, client query.MeasurementsClient, cache query.MeasurementsCache, logger *slog.Logger) http.Handler {
 	t.Helper()
 
 	application, err := app.New(
@@ -219,13 +310,13 @@ func newTestHTTPHandler(t *testing.T, client query.MeasurementsClient, cache que
 		func(assetID string, from, to time.Time) string {
 			return assetID + "|" + from.Format(time.RFC3339Nano) + "|" + to.Format(time.RFC3339Nano)
 		},
-		nil,
+		logger,
 	)
 	if err != nil {
 		t.Fatalf("create app: %v", err)
 	}
 
-	return NewHTTPHandler(application, nil, 0)
+	return NewHTTPHandler(application, logger, 0)
 }
 
 type fakeMeasurementsClient struct {

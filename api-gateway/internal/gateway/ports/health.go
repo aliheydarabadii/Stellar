@@ -1,17 +1,33 @@
 package ports
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"time"
 )
 
-func NewHealthHandler(isReady func() bool) http.Handler {
+type ReadinessProbe func(context.Context) error
+
+func NewHealthHandler(readinessProbe ReadinessProbe, readinessTimeout time.Duration) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeHealthResponse(w, http.StatusOK)
 	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if isReady != nil && !isReady() {
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if readinessProbe == nil {
+			writeHealthResponse(w, http.StatusOK)
+			return
+		}
+
+		ctx := r.Context()
+		if readinessTimeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, readinessTimeout)
+			defer cancel()
+		}
+
+		if err := readinessProbe(ctx); err != nil {
 			writeHealthResponse(w, http.StatusServiceUnavailable)
 			return
 		}

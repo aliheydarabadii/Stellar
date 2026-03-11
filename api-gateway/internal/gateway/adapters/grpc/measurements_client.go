@@ -25,6 +25,8 @@ type MeasurementsClient struct {
 	client measurementsv1.MeasurementServiceClient
 }
 
+const readinessProbeAssetID = "gateway-readiness-probe"
+
 func Dial(ctx context.Context, address string) (*MeasurementsClient, error) {
 	if strings.TrimSpace(address) == "" {
 		return nil, errors.New("measurement service gRPC address is required")
@@ -54,6 +56,24 @@ func (c *MeasurementsClient) Close() error {
 	return c.conn.Close()
 }
 
+func (c *MeasurementsClient) Ready(ctx context.Context) error {
+	if c == nil || c.client == nil {
+		return errors.New("measurement service client is not initialized")
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	_, err := c.client.GetMeasurements(ctx, &measurementsv1.GetMeasurementsRequest{
+		AssetId: readinessProbeAssetID,
+		From:    timestamppb.New(now),
+		To:      timestamppb.New(now),
+	})
+	if err != nil {
+		return fmt.Errorf("probe measurement service readiness: %w", err)
+	}
+
+	return nil
+}
+
 func (c *MeasurementsClient) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (query.MeasurementSeries, error) {
 	if c == nil || c.client == nil {
 		return query.MeasurementSeries{}, query.ErrMeasurementServiceUnavailable
@@ -74,7 +94,11 @@ func (c *MeasurementsClient) GetMeasurements(ctx context.Context, assetID string
 }
 
 func mapGRPCError(err error) error {
-	switch status.Code(err) {
+	statusErr := status.Convert(err)
+
+	switch statusErr.Code() {
+	case codes.InvalidArgument:
+		return query.NewDownstreamInvalidRequestError(statusErr.Message())
 	case codes.Unavailable, codes.DeadlineExceeded:
 		return fmt.Errorf("%w: %v", query.ErrMeasurementServiceUnavailable, err)
 	default:

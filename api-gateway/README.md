@@ -54,6 +54,12 @@ Environment variables:
 - `REDIS_DB`: optional Redis DB, default `0`
 - `CACHE_TTL`: cache TTL, default `5m`
 - `REQUEST_TIMEOUT`: optional per-request timeout, default `10s`
+- `READINESS_CHECK_TIMEOUT`: readiness probe timeout, default `2s`
+- `HTTP_READ_HEADER_TIMEOUT`: HTTP server read-header timeout, default `5s`
+- `HTTP_READ_TIMEOUT`: HTTP server read timeout, default `10s`
+- `HTTP_WRITE_TIMEOUT`: HTTP server write timeout, default `15s`
+- `HTTP_IDLE_TIMEOUT`: HTTP server idle timeout, default `60s`
+- `HTTP_MAX_HEADER_BYTES`: maximum HTTP header size in bytes, default `1048576`
 
 ## Running
 
@@ -75,6 +81,12 @@ The service starts:
 
 - the REST API on `HTTP_LISTEN_ADDR`
 - `/healthz` and `/readyz` on `HEALTH_LISTEN_ADDR` or on the main server when configured that way
+
+Operational behavior:
+
+- successful HTTP requests are logged with status, duration, request ID, correlation ID, and cache hit or miss
+- `x-request-id` and `x-correlation-id` are propagated to the Measurement Service over gRPC
+- `/readyz` actively checks both Redis and the Measurement Service before returning `200`
 
 ## API
 
@@ -105,7 +117,7 @@ Example response:
 - It depends on the internal Measurement Service through unary gRPC.
 - Redis stores the five-minute cache entries.
 - Cache keys are based on the exact request identity: `asset_id`, `from`, and `to`.
-- Cache failures degrade gracefully: Redis read/write failures are logged and bypassed, but successful fresh responses still return to the caller.
+- Redis read/write failures during request handling are logged and bypassed, but readiness still requires Redis availability because the five-minute freshness contract depends on it.
 
 ## Testing
 

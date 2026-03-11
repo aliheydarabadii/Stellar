@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"api_gateway/internal/gateway/requestctx"
 )
 
 var (
@@ -17,7 +19,29 @@ var (
 	ErrCacheKeyBuilderRequired       = errors.New("cache key builder is required")
 	ErrCacheTTLInvalid               = errors.New("cache ttl must be positive")
 	ErrMeasurementServiceUnavailable = errors.New("measurement service unavailable")
+	ErrDownstreamInvalidRequest      = errors.New("measurement service rejected request")
 )
+
+type downstreamInvalidRequestError struct {
+	message string
+}
+
+func NewDownstreamInvalidRequestError(message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return ErrDownstreamInvalidRequest
+	}
+
+	return downstreamInvalidRequestError{message: message}
+}
+
+func (e downstreamInvalidRequestError) Error() string {
+	return e.message
+}
+
+func (e downstreamInvalidRequestError) Is(target error) bool {
+	return target == ErrDownstreamInvalidRequest
+}
 
 type GetMeasurements struct {
 	AssetID string
@@ -89,9 +113,13 @@ func (h GetMeasurementsHandler) Handle(ctx context.Context, qry GetMeasurements)
 
 	series, found, err := h.cache.Get(ctx, cacheKey)
 	if err != nil {
+		requestctx.SetCacheStatus(ctx, requestctx.CacheStatusBypass)
 		h.logCacheWarning(ctx, "cache get failed", cacheKey, err)
 	} else if found {
+		requestctx.SetCacheStatus(ctx, requestctx.CacheStatusHit)
 		return series, nil
+	} else {
+		requestctx.SetCacheStatus(ctx, requestctx.CacheStatusMiss)
 	}
 
 	series, err = h.client.GetMeasurements(ctx, assetID, from, to)
