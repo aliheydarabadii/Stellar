@@ -191,6 +191,34 @@ func TestGRPCServerGetMeasurementsRejectsInvalidRequestShape(t *testing.T) {
 	}
 }
 
+func TestGRPCServerGetMeasurementsRejectsRangeLargerThanConfiguredLimit(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	application, err := app.NewWithConfig(&capturingReadModel{}, app.Config{
+		MaxQueryRange: 15 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("expected valid app, got %v", err)
+	}
+
+	server := NewGRPCServer(application)
+
+	_, err = server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
+		AssetId: "asset-1",
+		From:    timestamppb.New(now),
+		To:      timestamppb.New(now.Add(15*time.Minute + time.Second)),
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", status.Code(err))
+	}
+}
+
 type capturingReadModel struct {
 	assetID string
 	from    time.Time

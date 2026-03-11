@@ -30,6 +30,7 @@ type config struct {
 	InfluxToken                             string
 	GRPCListenAddr                          string
 	HealthListenAddr                        string
+	MaxQueryRange                           time.Duration
 	QueryTimeout                            time.Duration
 	InfluxCircuitBreakerFailureThreshold    int
 	InfluxCircuitBreakerOpenTimeout         time.Duration
@@ -54,11 +55,16 @@ func run(logger *slog.Logger) error {
 	influxClient := influxdb2.NewClient(cfg.InfluxURL, cfg.InfluxToken)
 	defer influxClient.Close()
 
-	application, err := app.New(influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
-		FailureThreshold:    cfg.InfluxCircuitBreakerFailureThreshold,
-		OpenTimeout:         cfg.InfluxCircuitBreakerOpenTimeout,
-		HalfOpenMaxRequests: cfg.InfluxCircuitBreakerHalfOpenMaxRequests,
-	}))
+	application, err := app.NewWithConfig(
+		influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
+			FailureThreshold:    cfg.InfluxCircuitBreakerFailureThreshold,
+			OpenTimeout:         cfg.InfluxCircuitBreakerOpenTimeout,
+			HalfOpenMaxRequests: cfg.InfluxCircuitBreakerHalfOpenMaxRequests,
+		}),
+		app.Config{
+			MaxQueryRange: cfg.MaxQueryRange,
+		},
+	)
 	if err != nil {
 		logger.Error("failed to initialize application", "error", err)
 		os.Exit(1)
@@ -142,10 +148,22 @@ func loadConfig() (config, error) {
 		InfluxToken:                             os.Getenv("INFLUX_TOKEN"),
 		GRPCListenAddr:                          envOrDefault("GRPC_LISTEN_ADDR", ":9090"),
 		HealthListenAddr:                        envOrDefault("HEALTH_LISTEN_ADDR", ":8080"),
+		MaxQueryRange:                           app.DefaultMaxQueryRange,
 		QueryTimeout:                            10 * time.Second,
 		InfluxCircuitBreakerFailureThreshold:    5,
 		InfluxCircuitBreakerOpenTimeout:         30 * time.Second,
 		InfluxCircuitBreakerHalfOpenMaxRequests: 1,
+	}
+
+	if rawMaxQueryRange := os.Getenv("MAX_QUERY_RANGE"); rawMaxQueryRange != "" {
+		maxQueryRange, err := time.ParseDuration(rawMaxQueryRange)
+		if err != nil {
+			return config{}, fmt.Errorf("parse MAX_QUERY_RANGE: %w", err)
+		}
+		if maxQueryRange <= 0 {
+			return config{}, errors.New("MAX_QUERY_RANGE must be positive")
+		}
+		cfg.MaxQueryRange = maxQueryRange
 	}
 
 	if rawTimeout := os.Getenv("QUERY_TIMEOUT"); rawTimeout != "" {

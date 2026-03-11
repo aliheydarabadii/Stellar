@@ -8,6 +8,7 @@ import (
 
 func TestLoadConfigSuccess(t *testing.T) {
 	setValidEnv(t)
+	t.Setenv("MAX_QUERY_RANGE", "20m")
 	t.Setenv("QUERY_TIMEOUT", "15s")
 	t.Setenv("INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "7")
 	t.Setenv("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT", "45s")
@@ -21,6 +22,9 @@ func TestLoadConfigSuccess(t *testing.T) {
 	if cfg.InfluxURL != "http://localhost:8086" {
 		t.Fatalf("expected influx url to be set, got %q", cfg.InfluxURL)
 	}
+	if cfg.MaxQueryRange != 20*time.Minute {
+		t.Fatalf("expected max query range 20m, got %v", cfg.MaxQueryRange)
+	}
 	if cfg.QueryTimeout != 15*time.Second {
 		t.Fatalf("expected query timeout 15s, got %v", cfg.QueryTimeout)
 	}
@@ -32,6 +36,19 @@ func TestLoadConfigSuccess(t *testing.T) {
 	}
 	if cfg.InfluxCircuitBreakerHalfOpenMaxRequests != 2 {
 		t.Fatalf("expected breaker half-open max requests 2, got %d", cfg.InfluxCircuitBreakerHalfOpenMaxRequests)
+	}
+}
+
+func TestLoadConfigUsesDefaultMaxQueryRange(t *testing.T) {
+	setValidEnv(t)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if cfg.MaxQueryRange != 15*time.Minute {
+		t.Fatalf("expected default max query range 15m, got %v", cfg.MaxQueryRange)
 	}
 }
 
@@ -74,6 +91,33 @@ func TestLoadConfigFailsOnInvalidDuration(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "parse QUERY_TIMEOUT") {
 		t.Fatalf("expected QUERY_TIMEOUT parse error, got %v", err)
+	}
+}
+
+func TestLoadConfigFailsOnInvalidMaxQueryRange(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "invalid duration", value: "not-a-duration", want: "parse MAX_QUERY_RANGE"},
+		{name: "non-positive duration", value: "0s", want: "MAX_QUERY_RANGE must be positive"},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv("MAX_QUERY_RANGE", tc.value)
+
+			_, err := loadConfig()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
 	}
 }
 

@@ -68,6 +68,7 @@ func mapQueryError(err error) error {
 	switch {
 	case errors.Is(err, query.ErrAssetIDRequired),
 		errors.Is(err, query.ErrInvalidTimeRange),
+		errors.Is(err, query.ErrQueryRangeTooLarge),
 		errors.Is(err, query.ErrTimestampZero):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, query.ErrReadModelUnavailable):

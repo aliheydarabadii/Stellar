@@ -71,6 +71,51 @@ func TestGetMeasurementsHandlerHandleRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestGetMeasurementsHandlerHandleRejectsRangeLargerThanConfiguredLimit(t *testing.T) {
+	t.Parallel()
+
+	handler, err := NewGetMeasurementsHandlerWithConfig(&fakeMeasurementsReadModel{}, HandlerConfig{
+		MaxQueryRange: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("expected valid handler, got %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	_, err = handler.Handle(context.Background(), GetMeasurements{
+		AssetID: "asset-1",
+		From:    now,
+		To:      now.Add(5*time.Minute + time.Second),
+	})
+	if !errors.Is(err, ErrQueryRangeTooLarge) {
+		t.Fatalf("expected error %v, got %v", ErrQueryRangeTooLarge, err)
+	}
+}
+
+func TestGetMeasurementsHandlerHandleAllowsRangeAtConfiguredLimit(t *testing.T) {
+	t.Parallel()
+
+	readModel := &fakeMeasurementsReadModel{}
+	handler, err := NewGetMeasurementsHandlerWithConfig(readModel, HandlerConfig{
+		MaxQueryRange: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("expected valid handler, got %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	_, err = handler.Handle(context.Background(), GetMeasurements{
+		AssetID: "asset-1",
+		From:    now,
+		To:      now.Add(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
 func TestGetMeasurementsHandlerHandleReturnsPoints(t *testing.T) {
 	t.Parallel()
 
