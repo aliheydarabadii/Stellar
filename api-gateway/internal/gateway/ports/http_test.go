@@ -10,6 +10,7 @@ import (
 
 	"api_gateway/internal/gateway/app"
 	"api_gateway/internal/gateway/app/query"
+	"api_gateway/internal/gateway/requestctx"
 )
 
 func TestHTTPHandlerGetMeasurementsReturnsJSON(t *testing.T) {
@@ -112,6 +113,102 @@ func TestHTTPHandlerGetMeasurementsReturnsServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerPropagatesRequestMetadataToContextAndResponse(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	client := &fakeMeasurementsClient{
+		series: query.MeasurementSeries{AssetID: "asset-1"},
+	}
+	handler := newTestHTTPHandler(t, client, &fakeMeasurementsCache{})
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	req.Header.Set(requestctx.RequestIDHeader, "req-123")
+	req.Header.Set(requestctx.CorrelationIDHeader, "corr-123")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get(requestctx.RequestIDHeader); got != "req-123" {
+		t.Fatalf("expected response request id %q, got %q", "req-123", got)
+	}
+	if got := rec.Header().Get(requestctx.CorrelationIDHeader); got != "corr-123" {
+		t.Fatalf("expected response correlation id %q, got %q", "corr-123", got)
+	}
+	if client.requestID != "req-123" {
+		t.Fatalf("expected client request id %q, got %q", "req-123", client.requestID)
+	}
+	if client.correlationID != "corr-123" {
+		t.Fatalf("expected client correlation id %q, got %q", "corr-123", client.correlationID)
+	}
+}
+
+func TestHTTPHandlerFallsBackToCorrelationIDWhenRequestIDMissing(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	client := &fakeMeasurementsClient{
+		series: query.MeasurementSeries{AssetID: "asset-1"},
+	}
+	handler := newTestHTTPHandler(t, client, &fakeMeasurementsCache{})
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	req.Header.Set(requestctx.CorrelationIDHeader, "corr-only")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get(requestctx.RequestIDHeader); got != "corr-only" {
+		t.Fatalf("expected response request id %q, got %q", "corr-only", got)
+	}
+	if got := rec.Header().Get(requestctx.CorrelationIDHeader); got != "corr-only" {
+		t.Fatalf("expected response correlation id %q, got %q", "corr-only", got)
+	}
+	if client.requestID != "corr-only" {
+		t.Fatalf("expected client request id %q, got %q", "corr-only", client.requestID)
+	}
+	if client.correlationID != "corr-only" {
+		t.Fatalf("expected client correlation id %q, got %q", "corr-only", client.correlationID)
+	}
+}
+
+func TestHTTPHandlerGeneratesRequestIDWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	client := &fakeMeasurementsClient{
+		series: query.MeasurementSeries{AssetID: "asset-1"},
+	}
+	handler := newTestHTTPHandler(t, client, &fakeMeasurementsCache{})
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get(requestctx.RequestIDHeader); got == "" {
+		t.Fatal("expected generated request id")
+	}
+	if got := rec.Header().Get(requestctx.CorrelationIDHeader); got != "" {
+		t.Fatalf("expected empty correlation id, got %q", got)
+	}
+	if client.requestID == "" {
+		t.Fatal("expected client request id to be set")
+	}
+	if client.correlationID != "" {
+		t.Fatalf("expected empty client correlation id, got %q", client.correlationID)
+	}
+}
+
 func newTestHTTPHandler(t *testing.T, client query.MeasurementsClient, cache query.MeasurementsCache) http.Handler {
 	t.Helper()
 
@@ -132,11 +229,16 @@ func newTestHTTPHandler(t *testing.T, client query.MeasurementsClient, cache que
 }
 
 type fakeMeasurementsClient struct {
-	series query.MeasurementSeries
-	err    error
+	series        query.MeasurementSeries
+	err           error
+	requestID     string
+	correlationID string
 }
 
-func (f *fakeMeasurementsClient) GetMeasurements(_ context.Context, assetID string, from, to time.Time) (query.MeasurementSeries, error) {
+func (f *fakeMeasurementsClient) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (query.MeasurementSeries, error) {
+	f.requestID = requestctx.RequestIDFromContext(ctx)
+	f.correlationID = requestctx.CorrelationIDFromContext(ctx)
+
 	if f.err != nil {
 		return query.MeasurementSeries{}, f.err
 	}

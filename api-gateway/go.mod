@@ -20,4 +20,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
 )
 
-replace stellar => ../measurement_service
+replace stellar => ../measurement-service

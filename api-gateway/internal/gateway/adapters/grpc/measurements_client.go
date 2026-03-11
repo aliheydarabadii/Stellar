@@ -7,9 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"api_gateway/internal/gateway/requestctx"
 	grpcpkg "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -57,6 +59,8 @@ func (c *MeasurementsClient) GetMeasurements(ctx context.Context, assetID string
 		return query.MeasurementSeries{}, query.ErrMeasurementServiceUnavailable
 	}
 
+	ctx = withOutgoingRequestMetadata(ctx)
+
 	resp, err := c.client.GetMeasurements(ctx, &measurementsv1.GetMeasurementsRequest{
 		AssetId: assetID,
 		From:    timestamppb.New(from.UTC()),
@@ -101,6 +105,26 @@ func toMeasurementSeries(resp *measurementsv1.GetMeasurementsResponse) (query.Me
 		AssetID: resp.GetAssetId(),
 		Points:  points,
 	}, nil
+}
+
+func withOutgoingRequestMetadata(ctx context.Context) context.Context {
+	requestID := requestctx.RequestIDFromContext(ctx)
+	correlationID := requestctx.CorrelationIDFromContext(ctx)
+
+	if requestID == "" && correlationID == "" {
+		return ctx
+	}
+
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	if requestID != "" {
+		md.Set(requestctx.RequestIDHeader, requestID)
+	}
+	if correlationID != "" {
+		md.Set(requestctx.CorrelationIDHeader, correlationID)
+	}
+
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 func timestampToTime(ts *timestamppb.Timestamp) (time.Time, error) {

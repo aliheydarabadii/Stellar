@@ -5,13 +5,13 @@ ARG TARGETARCH
 
 WORKDIR /src
 
-COPY measurement-service/go.mod measurement-service/go.sum ./measurement_service/
+COPY measurement-service/go.mod measurement-service/go.sum ./measurement-service/
 COPY api-gateway/go.mod api-gateway/go.sum ./api-gateway/
 
 WORKDIR /src/api-gateway
 RUN go mod download
 
-COPY measurement-service /src/measurement_service
+COPY measurement-service /src/measurement-service
 COPY api-gateway /src/api-gateway
 
 RUN target_os="${TARGETOS:-linux}" && \

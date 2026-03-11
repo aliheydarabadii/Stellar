@@ -59,7 +59,7 @@ Environment variables:
 
 This gateway expects:
 
-- the sibling `../measurement_service` module to expose the generated gRPC client package `stellar/api/proto`
+- the sibling `../measurement-service` module to expose the generated gRPC client package `stellar/api/proto`
 - Redis to be available at `REDIS_ADDR`
 - the Measurement Service to be reachable at `MEASUREMENT_SERVICE_GRPC_ADDR`
 

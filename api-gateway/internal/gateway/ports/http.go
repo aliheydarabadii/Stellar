@@ -10,6 +10,7 @@ import (
 
 	"api_gateway/internal/gateway/app"
 	"api_gateway/internal/gateway/app/query"
+	"api_gateway/internal/gateway/requestctx"
 )
 
 type errorResponse struct {
@@ -51,7 +52,7 @@ func NewHTTPHandler(application app.Application, logger *slog.Logger, requestTim
 		writeJSON(w, http.StatusOK, series)
 	})
 
-	return mux
+	return withRequestMetadata(mux)
 }
 
 func parseTimeParam(r *http.Request, name string) (time.Time, error) {
@@ -86,6 +87,23 @@ func writeQueryError(w http.ResponseWriter, r *http.Request, logger *slog.Logger
 		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal server error"})
 	}
+}
+
+func withRequestMetadata(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID, correlationID := requestctx.Normalize(
+			r.Header.Get(requestctx.RequestIDHeader),
+			r.Header.Get(requestctx.CorrelationIDHeader),
+		)
+
+		w.Header().Set(requestctx.RequestIDHeader, requestID)
+		if correlationID != "" {
+			w.Header().Set(requestctx.CorrelationIDHeader, correlationID)
+		}
+
+		ctx := requestctx.WithValues(r.Context(), requestID, correlationID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
