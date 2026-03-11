@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,20 +21,6 @@ import (
 	"stellar/internal/measurements/app"
 	"stellar/internal/measurements/ports"
 )
-
-type config struct {
-	InfluxURL                               string
-	InfluxOrg                               string
-	InfluxBucket                            string
-	InfluxToken                             string
-	GRPCListenAddr                          string
-	HealthListenAddr                        string
-	MaxQueryRange                           time.Duration
-	QueryTimeout                            time.Duration
-	InfluxCircuitBreakerFailureThreshold    int
-	InfluxCircuitBreakerOpenTimeout         time.Duration
-	InfluxCircuitBreakerHalfOpenMaxRequests int
-}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -138,102 +123,4 @@ func shutdown(parent context.Context, logger *slog.Logger, grpcServer *grpc.Serv
 	}
 
 	return nil
-}
-
-func loadConfig() (config, error) {
-	cfg := config{
-		InfluxURL:                               os.Getenv("INFLUX_URL"),
-		InfluxOrg:                               os.Getenv("INFLUX_ORG"),
-		InfluxBucket:                            os.Getenv("INFLUX_BUCKET"),
-		InfluxToken:                             os.Getenv("INFLUX_TOKEN"),
-		GRPCListenAddr:                          envOrDefault("GRPC_LISTEN_ADDR", ":9090"),
-		HealthListenAddr:                        envOrDefault("HEALTH_LISTEN_ADDR", ":8080"),
-		MaxQueryRange:                           app.DefaultMaxQueryRange,
-		QueryTimeout:                            10 * time.Second,
-		InfluxCircuitBreakerFailureThreshold:    5,
-		InfluxCircuitBreakerOpenTimeout:         30 * time.Second,
-		InfluxCircuitBreakerHalfOpenMaxRequests: 1,
-	}
-
-	if rawMaxQueryRange := os.Getenv("MAX_QUERY_RANGE"); rawMaxQueryRange != "" {
-		maxQueryRange, err := time.ParseDuration(rawMaxQueryRange)
-		if err != nil {
-			return config{}, fmt.Errorf("parse MAX_QUERY_RANGE: %w", err)
-		}
-		if maxQueryRange <= 0 {
-			return config{}, errors.New("MAX_QUERY_RANGE must be positive")
-		}
-		cfg.MaxQueryRange = maxQueryRange
-	}
-
-	if rawTimeout := os.Getenv("QUERY_TIMEOUT"); rawTimeout != "" {
-		timeout, err := time.ParseDuration(rawTimeout)
-		if err != nil {
-			return config{}, fmt.Errorf("parse QUERY_TIMEOUT: %w", err)
-		}
-		if timeout <= 0 {
-			return config{}, errors.New("QUERY_TIMEOUT must be positive")
-		}
-		cfg.QueryTimeout = timeout
-	}
-
-	if value := os.Getenv("INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD"); value != "" {
-		parsed, err := parsePositiveInt(value)
-		if err != nil {
-			return config{}, fmt.Errorf("parse INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD: %w", err)
-		}
-		cfg.InfluxCircuitBreakerFailureThreshold = parsed
-	}
-
-	if value := os.Getenv("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT"); value != "" {
-		parsed, err := time.ParseDuration(value)
-		if err != nil {
-			return config{}, fmt.Errorf("parse INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT: %w", err)
-		}
-		if parsed <= 0 {
-			return config{}, errors.New("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT must be positive")
-		}
-		cfg.InfluxCircuitBreakerOpenTimeout = parsed
-	}
-
-	if value := os.Getenv("INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS"); value != "" {
-		parsed, err := parsePositiveInt(value)
-		if err != nil {
-			return config{}, fmt.Errorf("parse INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
-		}
-		cfg.InfluxCircuitBreakerHalfOpenMaxRequests = parsed
-	}
-
-	switch {
-	case cfg.InfluxURL == "":
-		return config{}, errors.New("INFLUX_URL is required")
-	case cfg.InfluxOrg == "":
-		return config{}, errors.New("INFLUX_ORG is required")
-	case cfg.InfluxBucket == "":
-		return config{}, errors.New("INFLUX_BUCKET is required")
-	case cfg.InfluxToken == "":
-		return config{}, errors.New("INFLUX_TOKEN is required")
-	}
-
-	return cfg, nil
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-
-	return fallback
-}
-
-func parsePositiveInt(value string) (int, error) {
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, err
-	}
-	if parsed <= 0 {
-		return 0, errors.New("value must be positive")
-	}
-
-	return parsed, nil
 }

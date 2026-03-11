@@ -39,7 +39,7 @@ func TestLoadConfigSuccess(t *testing.T) {
 	}
 }
 
-func TestLoadConfigUsesDefaultMaxQueryRange(t *testing.T) {
+func TestLoadConfigUsesDefaults(t *testing.T) {
 	setValidEnv(t)
 
 	cfg, err := loadConfig()
@@ -47,8 +47,17 @@ func TestLoadConfigUsesDefaultMaxQueryRange(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
+	if cfg.GRPCListenAddr != ":9090" {
+		t.Fatalf("expected default gRPC address :9090, got %q", cfg.GRPCListenAddr)
+	}
+	if cfg.HealthListenAddr != ":8080" {
+		t.Fatalf("expected default health address :8080, got %q", cfg.HealthListenAddr)
+	}
 	if cfg.MaxQueryRange != 15*time.Minute {
 		t.Fatalf("expected default max query range 15m, got %v", cfg.MaxQueryRange)
+	}
+	if cfg.QueryTimeout != 10*time.Second {
+		t.Fatalf("expected default query timeout 10s, got %v", cfg.QueryTimeout)
 	}
 }
 
@@ -136,25 +145,51 @@ func TestLoadConfigFailsOnInvalidMaxQueryRange(t *testing.T) {
 	}
 }
 
-func TestParsePositiveInt(t *testing.T) {
-	value, err := parsePositiveInt("3")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+func TestLoadConfigFailsOnInvalidPositiveIntegerSettings(t *testing.T) {
+	testCases := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{
+			name:  "failure threshold parse",
+			key:   "INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+			value: "abc",
+			want:  "parse INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+		},
+		{
+			name:  "failure threshold positive",
+			key:   "INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+			value: "0",
+			want:  "INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD must be positive",
+		},
+		{
+			name:  "half open requests parse",
+			key:   "INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+			value: "abc",
+			want:  "parse INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+		},
+		{
+			name:  "half open requests positive",
+			key:   "INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+			value: "-1",
+			want:  "INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive",
+		},
 	}
-	if value != 3 {
-		t.Fatalf("expected 3, got %d", value)
-	}
-}
 
-func TestParsePositiveIntRejectsInvalidValues(t *testing.T) {
-	testCases := []string{"0", "-1", "abc"}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv(tc.key, tc.value)
 
-	for _, input := range testCases {
-		input := input
-		t.Run(input, func(t *testing.T) {
-			_, err := parsePositiveInt(input)
+			_, err := loadConfig()
 			if err == nil {
 				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
 		})
 	}
@@ -167,6 +202,4 @@ func setValidEnv(t *testing.T) {
 	t.Setenv("INFLUX_ORG", "acme")
 	t.Setenv("INFLUX_BUCKET", "measurements")
 	t.Setenv("INFLUX_TOKEN", "secret")
-	t.Setenv("GRPC_LISTEN_ADDR", ":9090")
-	t.Setenv("HEALTH_LISTEN_ADDR", ":8080")
 }

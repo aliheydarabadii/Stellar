@@ -3,7 +3,9 @@ module stellar
 go 1.26.0
 
 require (
+	github.com/caarlos0/env/v11 v11.3.1
 	github.com/influxdata/influxdb-client-go/v2 v2.14.0
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/testcontainers/testcontainers-go v0.40.0
 	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
@@ -52,7 +54,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
