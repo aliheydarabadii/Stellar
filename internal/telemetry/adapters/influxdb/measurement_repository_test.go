@@ -62,6 +62,9 @@ func TestMeasurementRepositorySave(t *testing.T) {
 	if err := repository.Save(context.Background(), measurement); err != nil {
 		t.Fatalf("expected save to succeed, got %v", err)
 	}
+	if err := repository.Close(); err != nil {
+		t.Fatalf("expected close to succeed, got %v", err)
+	}
 
 	if gotMethod != http.MethodPost {
 		t.Fatalf("expected method %q, got %q", http.MethodPost, gotMethod)
@@ -204,6 +207,9 @@ func TestNewMeasurementRepositoryWithConfigValidation(t *testing.T) {
 				if repository == nil {
 					t.Fatal("expected repository to be created")
 				}
+				if closeErr := repository.Close(); closeErr != nil {
+					t.Fatalf("expected close to succeed, got %v", closeErr)
+				}
 				return
 			}
 
@@ -247,13 +253,16 @@ func TestMeasurementRepositorySaveReturnsWriteFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+	if closeErr := repository.Close(); closeErr != nil {
+		t.Fatalf("expected close to succeed, got %v", closeErr)
+	}
 
 	if !strings.Contains(err.Error(), "write failed") {
 		t.Fatalf("expected write failure in error, got %v", err)
 	}
 }
 
-func TestMeasurementRepositoryBatchModeFlushesOnClose(t *testing.T) {
+func TestMeasurementRepositoryBatchModeSaveFlushesOnInterval(t *testing.T) {
 	t.Parallel()
 
 	bodyCh := make(chan string, 1)
@@ -276,6 +285,51 @@ func TestMeasurementRepositoryBatchModeFlushesOnClose(t *testing.T) {
 		Timeout:       time.Second,
 		WriteMode:     WriteModeBatch,
 		BatchSize:     10,
+		FlushInterval: 10 * time.Millisecond,
+	}, NewPointMapper())
+	if err != nil {
+		t.Fatalf("expected valid repository, got %v", err)
+	}
+	defer func() {
+		if closeErr := repository.Close(); closeErr != nil {
+			t.Fatalf("expected close to succeed, got %v", closeErr)
+		}
+	}()
+
+	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 100, 55, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("expected valid measurement, got %v", err)
+	}
+
+	if err := repository.Save(context.Background(), measurement); err != nil {
+		t.Fatalf("expected save to flush successfully, got %v", err)
+	}
+
+	select {
+	case body := <-bodyCh:
+		assertBodyContains(t, body, "asset_measurements")
+		assertBodyContains(t, body, "asset_id=871689260010377213")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for batched write flush")
+	}
+}
+
+func TestMeasurementRepositoryBatchModeCloseReturnsFlushFailure(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "write failed", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	repository, err := NewMeasurementRepositoryWithConfig(Config{
+		BaseURL:       server.URL,
+		Org:           "demo-org",
+		Bucket:        "telemetry",
+		Token:         "demo-token",
+		Timeout:       time.Second,
+		WriteMode:     WriteModeBatch,
+		BatchSize:     10,
 		FlushInterval: time.Hour,
 	}, NewPointMapper())
 	if err != nil {
@@ -287,18 +341,31 @@ func TestMeasurementRepositoryBatchModeFlushesOnClose(t *testing.T) {
 		t.Fatalf("expected valid measurement, got %v", err)
 	}
 
-	if err := repository.Save(context.Background(), measurement); err != nil {
-		t.Fatalf("expected save to enqueue successfully, got %v", err)
+	saveErrCh := make(chan error, 1)
+	go func() {
+		saveErrCh <- repository.Save(context.Background(), measurement)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	closeErr := repository.Close()
+	if closeErr == nil {
+		t.Fatal("expected close to return flush failure, got nil")
+	}
+	if !strings.Contains(closeErr.Error(), "write failed") {
+		t.Fatalf("expected close error to contain write failure, got %v", closeErr)
 	}
 
-	repository.Close()
-
 	select {
-	case body := <-bodyCh:
-		assertBodyContains(t, body, "asset_measurements")
-		assertBodyContains(t, body, "asset_id=871689260010377213")
+	case saveErr := <-saveErrCh:
+		if saveErr == nil {
+			t.Fatal("expected save to return flush failure, got nil")
+		}
+		if !strings.Contains(saveErr.Error(), "write failed") {
+			t.Fatalf("expected save error to contain write failure, got %v", saveErr)
+		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for batched write flush")
+		t.Fatal("timed out waiting for save to return")
 	}
 }
 

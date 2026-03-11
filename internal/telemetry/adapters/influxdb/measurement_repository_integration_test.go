@@ -104,7 +104,9 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestSavePersistsMeasurementT
 		WriteMode: influxdb.WriteModeBlocking,
 	}, influxdb.NewPointMapperWithAssetType(string(domain.SolarPanelType)))
 	s.Require().NoError(err)
-	s.T().Cleanup(repository.Close)
+	s.T().Cleanup(func() {
+		s.Require().NoError(repository.Close())
+	})
 
 	collectedAt := time.Date(2026, time.March, 10, 12, 0, 0, 123456789, time.UTC)
 	measurement, err := domain.NewMeasurement(domain.AssetID("integration-asset-1"), 100, 55, collectedAt)
@@ -120,6 +122,42 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestSavePersistsMeasurementT
 		return queryErr == nil && len(persisted) > 0
 	}, 15*time.Second, 500*time.Millisecond, "expected saved point to become queryable")
 
+	s.Require().Len(persisted, 1)
+
+	record := persisted[0]
+	s.Assert().Equal("asset_measurements", record.MeasurementName)
+	s.Assert().Equal(measurement.AssetID.String(), record.AssetID)
+	s.Assert().Equal(string(domain.SolarPanelType), record.AssetType)
+	s.Assert().Equal(measurement.Setpoint, record.Setpoint)
+	s.Assert().Equal(measurement.ActivePower, record.ActivePower)
+	s.Assert().Equal(measurement.CollectedAt, record.CollectedAt)
+}
+
+func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModeSavePersistsMeasurementToRealInfluxDB() {
+	repository, err := influxdb.NewMeasurementRepositoryWithConfig(influxdb.Config{
+		BaseURL:       s.baseURL,
+		Org:           testInfluxOrg,
+		Bucket:        testInfluxBucket,
+		Token:         testInfluxToken,
+		Timeout:       10 * time.Second,
+		WriteMode:     influxdb.WriteModeBatch,
+		BatchSize:     10,
+		FlushInterval: 25 * time.Millisecond,
+	}, influxdb.NewPointMapperWithAssetType(string(domain.SolarPanelType)))
+	s.Require().NoError(err)
+	s.T().Cleanup(func() {
+		s.Require().NoError(repository.Close())
+	})
+
+	collectedAt := time.Date(2026, time.March, 10, 12, 1, 0, 987654321, time.UTC)
+	measurement, err := domain.NewMeasurement(domain.AssetID("integration-asset-batch-1"), 120, 65, collectedAt)
+	s.Require().NoError(err)
+
+	ctx := context.Background()
+	s.Require().NoError(repository.Save(ctx, measurement))
+
+	persisted, err := s.queryMeasurements(ctx, measurement.AssetID.String(), collectedAt.Add(-time.Minute), collectedAt.Add(time.Minute))
+	s.Require().NoError(err)
 	s.Require().Len(persisted, 1)
 
 	record := persisted[0]

@@ -150,7 +150,7 @@ export HTTP_PORT=8080
 Influx write modes:
 
 - `blocking`: write each point synchronously
-- `batch`: buffer writes in the client and flush in batches
+- `batch`: group concurrent writes and flush them in batches before `Save(...)` returns
 
 `INFLUX_LOG_LEVEL` maps directly to the InfluxDB Go client log level (`uint`).
 
@@ -158,6 +158,8 @@ When `INFLUX_WRITE_MODE=batch`, you can also set:
 
 - `INFLUX_BATCH_SIZE`
 - `INFLUX_FLUSH_INTERVAL`
+
+Batch mode keeps repository success semantics honest: a `Save(...)` call returns only after the batch containing the point has been written successfully or failed. The tradeoff is added latency up to the configured flush interval.
 
 Tracing is exported over OTLP/HTTP when `TRACING_ENABLED=true`.
 

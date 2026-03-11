@@ -9,4 +9,5 @@ var (
 	ErrEmptyToken       = errors.New("empty token")
 	ErrInvalidTimeout   = errors.New("invalid timeout")
 	ErrInvalidWriteMode = errors.New("invalid write mode")
+	ErrRepositoryClosed = errors.New("repository closed")
 )

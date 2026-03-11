@@ -56,7 +56,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, cfg config, logger *slog.Logger) error {
+func run(ctx context.Context, cfg config, logger *slog.Logger) (runErr error) {
 	shutdownTracing, err := ports.SetupTracing(ctx, serviceName, cfg.Tracing)
 	if err != nil {
 		return fmt.Errorf("setup tracing: %w", err)
@@ -86,7 +86,16 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create influxdb repository: %w", err)
 	}
-	defer repository.Close()
+	defer func() {
+		if err := repository.Close(); err != nil {
+			if runErr == nil {
+				runErr = fmt.Errorf("close influxdb repository: %w", err)
+				return
+			}
+
+			logger.Error("failed to close influxdb repository", "error", err)
+		}
+	}()
 	instrumentedRepository := ports.InstrumentMeasurementRepository(repository, metrics, tracer)
 
 	application := app.NewApplication(cfg.AssetID, instrumentedSource, instrumentedRepository)
@@ -116,7 +125,8 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		"tracing_endpoint", cfg.Tracing.Endpoint,
 	)
 
-	return runComponents(ctx, logger, httpServer, worker)
+	runErr = runComponents(ctx, logger, httpServer, worker)
+	return runErr
 }
 
 func runComponents(ctx context.Context, logger *slog.Logger, httpServer ports.HTTPServer, worker ports.Worker) error {
