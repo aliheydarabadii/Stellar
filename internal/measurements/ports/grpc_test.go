@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -14,9 +15,15 @@ import (
 	"stellar/internal/measurements/app/query"
 )
 
-func TestGRPCServerGetMeasurementsMapsRequestAndResponse(t *testing.T) {
-	t.Parallel()
+type GRPCServerSuite struct {
+	suite.Suite
+}
 
+func TestGRPCServerSuite(t *testing.T) {
+	suite.Run(t, new(GRPCServerSuite))
+}
+
+func (s *GRPCServerSuite) TestGetMeasurementsMapsRequestAndResponse() {
 	from := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	to := from.Add(2 * time.Second)
 	readModel := &capturingReadModel{
@@ -30,9 +37,7 @@ func TestGRPCServerGetMeasurementsMapsRequestAndResponse(t *testing.T) {
 	}
 
 	application, err := app.New(readModel)
-	if err != nil {
-		t.Fatalf("expected valid app, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	server := NewGRPCServer(application)
 
@@ -41,49 +46,22 @@ func TestGRPCServerGetMeasurementsMapsRequestAndResponse(t *testing.T) {
 		From:    timestamppb.New(from),
 		To:      timestamppb.New(to),
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	s.Require().NoError(err)
 
-	if readModel.assetID != "asset-1" {
-		t.Fatalf("expected asset id asset-1, got %q", readModel.assetID)
-	}
-
-	if !readModel.from.Equal(from) {
-		t.Fatalf("expected from %v, got %v", from, readModel.from)
-	}
-
-	if !readModel.to.Equal(to) {
-		t.Fatalf("expected to %v, got %v", to, readModel.to)
-	}
-
-	if resp.GetAssetId() != "asset-1" {
-		t.Fatalf("expected response asset id asset-1, got %q", resp.GetAssetId())
-	}
-
-	if len(resp.GetPoints()) != 1 {
-		t.Fatalf("expected 1 point, got %d", len(resp.GetPoints()))
-	}
-
-	point := resp.GetPoints()[0]
-	if point.GetSetpoint() != 11 {
-		t.Fatalf("expected setpoint 11, got %v", point.GetSetpoint())
-	}
-
-	if point.GetActivePower() != 10.5 {
-		t.Fatalf("expected active power 10.5, got %v", point.GetActivePower())
-	}
+	s.Equal("asset-1", readModel.assetID)
+	s.True(readModel.from.Equal(from))
+	s.True(readModel.to.Equal(to))
+	s.Equal("asset-1", resp.GetAssetId())
+	s.Len(resp.GetPoints(), 1)
+	s.Equal(11.0, resp.GetPoints()[0].GetSetpoint())
+	s.Equal(10.5, resp.GetPoints()[0].GetActivePower())
 }
 
-func TestGRPCServerGetMeasurementsRejectsInvalidInput(t *testing.T) {
-	t.Parallel()
-
+func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidInput() {
 	now := time.Now().UTC()
 
 	application, err := app.New(&capturingReadModel{})
-	if err != nil {
-		t.Fatalf("expected valid app, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	server := NewGRPCServer(application)
 
@@ -92,26 +70,16 @@ func TestGRPCServerGetMeasurementsRejectsInvalidInput(t *testing.T) {
 		From:    timestamppb.New(now),
 		To:      timestamppb.New(now),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
 
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("expected InvalidArgument, got %v", status.Code(err))
-	}
+	s.Error(err)
+	s.Equal(codes.InvalidArgument, status.Code(err))
 }
 
-func TestGRPCServerGetMeasurementsMapsReadModelUnavailable(t *testing.T) {
-	t.Parallel()
-
+func (s *GRPCServerSuite) TestGetMeasurementsMapsReadModelUnavailable() {
 	now := time.Now().UTC()
 
-	application, err := app.New(&capturingReadModel{
-		err: query.ErrReadModelUnavailable,
-	})
-	if err != nil {
-		t.Fatalf("expected valid app, got %v", err)
-	}
+	application, err := app.New(&capturingReadModel{err: query.ErrReadModelUnavailable})
+	s.Require().NoError(err)
 
 	server := NewGRPCServer(application)
 
@@ -120,22 +88,14 @@ func TestGRPCServerGetMeasurementsMapsReadModelUnavailable(t *testing.T) {
 		From:    timestamppb.New(now),
 		To:      timestamppb.New(now),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
 
-	if status.Code(err) != codes.Unavailable {
-		t.Fatalf("expected Unavailable, got %v", status.Code(err))
-	}
+	s.Error(err)
+	s.Equal(codes.Unavailable, status.Code(err))
 }
 
-func TestGRPCServerGetMeasurementsRejectsInvalidRequestShape(t *testing.T) {
-	t.Parallel()
-
+func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidRequestShape() {
 	application, err := app.New(&capturingReadModel{})
-	if err != nil {
-		t.Fatalf("expected valid app, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	server := NewGRPCServer(application)
 
@@ -176,32 +136,22 @@ func TestGRPCServerGetMeasurementsRejectsInvalidRequestShape(t *testing.T) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
+		s.Run(tc.name, func() {
 			_, err := server.GetMeasurements(context.Background(), tc.req)
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
 
-			if status.Code(err) != codes.InvalidArgument {
-				t.Fatalf("expected InvalidArgument, got %v", status.Code(err))
-			}
+			s.Error(err)
+			s.Equal(codes.InvalidArgument, status.Code(err))
 		})
 	}
 }
 
-func TestGRPCServerGetMeasurementsRejectsRangeLargerThanConfiguredLimit(t *testing.T) {
-	t.Parallel()
-
+func (s *GRPCServerSuite) TestGetMeasurementsRejectsRangeLargerThanConfiguredLimit() {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	application, err := app.NewWithConfig(&capturingReadModel{}, app.Config{
 		MaxQueryRange: 15 * time.Minute,
 	})
-	if err != nil {
-		t.Fatalf("expected valid app, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	server := NewGRPCServer(application)
 
@@ -210,13 +160,9 @@ func TestGRPCServerGetMeasurementsRejectsRangeLargerThanConfiguredLimit(t *testi
 		From:    timestamppb.New(now),
 		To:      timestamppb.New(now.Add(15*time.Minute + time.Second)),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
 
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("expected InvalidArgument, got %v", status.Code(err))
-	}
+	s.Error(err)
+	s.Equal(codes.InvalidArgument, status.Code(err))
 }
 
 type capturingReadModel struct {

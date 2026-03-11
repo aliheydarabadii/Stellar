@@ -4,64 +4,50 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/suite"
 )
 
-func TestLoadConfigSuccess(t *testing.T) {
-	setValidEnv(t)
-	t.Setenv("MAX_QUERY_RANGE", "20m")
-	t.Setenv("QUERY_TIMEOUT", "15s")
-	t.Setenv("INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "7")
-	t.Setenv("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT", "45s")
-	t.Setenv("INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "2")
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if cfg.InfluxURL != "http://localhost:8086" {
-		t.Fatalf("expected influx url to be set, got %q", cfg.InfluxURL)
-	}
-	if cfg.MaxQueryRange != 20*time.Minute {
-		t.Fatalf("expected max query range 20m, got %v", cfg.MaxQueryRange)
-	}
-	if cfg.QueryTimeout != 15*time.Second {
-		t.Fatalf("expected query timeout 15s, got %v", cfg.QueryTimeout)
-	}
-	if cfg.InfluxCircuitBreakerFailureThreshold != 7 {
-		t.Fatalf("expected breaker failure threshold 7, got %d", cfg.InfluxCircuitBreakerFailureThreshold)
-	}
-	if cfg.InfluxCircuitBreakerOpenTimeout != 45*time.Second {
-		t.Fatalf("expected breaker open timeout 45s, got %v", cfg.InfluxCircuitBreakerOpenTimeout)
-	}
-	if cfg.InfluxCircuitBreakerHalfOpenMaxRequests != 2 {
-		t.Fatalf("expected breaker half-open max requests 2, got %d", cfg.InfluxCircuitBreakerHalfOpenMaxRequests)
-	}
+type ConfigSuite struct {
+	suite.Suite
 }
 
-func TestLoadConfigUsesDefaults(t *testing.T) {
-	setValidEnv(t)
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if cfg.GRPCListenAddr != ":9090" {
-		t.Fatalf("expected default gRPC address :9090, got %q", cfg.GRPCListenAddr)
-	}
-	if cfg.HealthListenAddr != ":8080" {
-		t.Fatalf("expected default health address :8080, got %q", cfg.HealthListenAddr)
-	}
-	if cfg.MaxQueryRange != 15*time.Minute {
-		t.Fatalf("expected default max query range 15m, got %v", cfg.MaxQueryRange)
-	}
-	if cfg.QueryTimeout != 10*time.Second {
-		t.Fatalf("expected default query timeout 10s, got %v", cfg.QueryTimeout)
-	}
+func TestConfigSuite(t *testing.T) {
+	suite.Run(t, new(ConfigSuite))
 }
 
-func TestLoadConfigFailsWhenRequiredInfluxEnvMissing(t *testing.T) {
+func (s *ConfigSuite) TestLoadConfigSuccess() {
+	setValidEnv(s.T())
+	s.T().Setenv("MAX_QUERY_RANGE", "20m")
+	s.T().Setenv("QUERY_TIMEOUT", "15s")
+	s.T().Setenv("INFLUX_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "7")
+	s.T().Setenv("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT", "45s")
+	s.T().Setenv("INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "2")
+
+	cfg, err := loadConfig()
+	s.Require().NoError(err)
+
+	s.Equal("http://localhost:8086", cfg.InfluxURL)
+	s.Equal(20*time.Minute, cfg.MaxQueryRange)
+	s.Equal(15*time.Second, cfg.QueryTimeout)
+	s.Equal(7, cfg.InfluxCircuitBreakerFailureThreshold)
+	s.Equal(45*time.Second, cfg.InfluxCircuitBreakerOpenTimeout)
+	s.Equal(2, cfg.InfluxCircuitBreakerHalfOpenMaxRequests)
+}
+
+func (s *ConfigSuite) TestLoadConfigUsesDefaults() {
+	setValidEnv(s.T())
+
+	cfg, err := loadConfig()
+	s.Require().NoError(err)
+
+	s.Equal(":9090", cfg.GRPCListenAddr)
+	s.Equal(":8080", cfg.HealthListenAddr)
+	s.Equal(15*time.Minute, cfg.MaxQueryRange)
+	s.Equal(10*time.Second, cfg.QueryTimeout)
+}
+
+func (s *ConfigSuite) TestLoadConfigFailsWhenRequiredInfluxEnvMissing() {
 	testCases := []struct {
 		name    string
 		key     string
@@ -75,22 +61,18 @@ func TestLoadConfigFailsWhenRequiredInfluxEnvMissing(t *testing.T) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			setValidEnv(t)
-			t.Setenv(tc.key, "")
+		s.Run(tc.name, func() {
+			setValidEnv(s.T())
+			s.T().Setenv(tc.key, "")
 
 			_, err := loadConfig()
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if err.Error() != tc.wantErr {
-				t.Fatalf("expected %q, got %q", tc.wantErr, err.Error())
-			}
+			s.Require().Error(err)
+			s.Equal(tc.wantErr, err.Error())
 		})
 	}
 }
 
-func TestLoadConfigFailsOnInvalidQueryTimeout(t *testing.T) {
+func (s *ConfigSuite) TestLoadConfigFailsOnInvalidQueryTimeout() {
 	testCases := []struct {
 		name  string
 		value string
@@ -103,22 +85,18 @@ func TestLoadConfigFailsOnInvalidQueryTimeout(t *testing.T) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			setValidEnv(t)
-			t.Setenv("QUERY_TIMEOUT", tc.value)
+		s.Run(tc.name, func() {
+			setValidEnv(s.T())
+			s.T().Setenv("QUERY_TIMEOUT", tc.value)
 
 			_, err := loadConfig()
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("expected error containing %q, got %v", tc.want, err)
-			}
+			s.Require().Error(err)
+			s.Contains(err.Error(), tc.want)
 		})
 	}
 }
 
-func TestLoadConfigFailsOnInvalidMaxQueryRange(t *testing.T) {
+func (s *ConfigSuite) TestLoadConfigFailsOnInvalidMaxQueryRange() {
 	testCases := []struct {
 		name  string
 		value string
@@ -130,22 +108,18 @@ func TestLoadConfigFailsOnInvalidMaxQueryRange(t *testing.T) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			setValidEnv(t)
-			t.Setenv("MAX_QUERY_RANGE", tc.value)
+		s.Run(tc.name, func() {
+			setValidEnv(s.T())
+			s.T().Setenv("MAX_QUERY_RANGE", tc.value)
 
 			_, err := loadConfig()
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("expected error containing %q, got %v", tc.want, err)
-			}
+			s.Require().Error(err)
+			s.Contains(err.Error(), tc.want)
 		})
 	}
 }
 
-func TestLoadConfigFailsOnInvalidPositiveIntegerSettings(t *testing.T) {
+func (s *ConfigSuite) TestLoadConfigFailsOnInvalidPositiveIntegerSettings() {
 	testCases := []struct {
 		name  string
 		key   string
@@ -180,17 +154,13 @@ func TestLoadConfigFailsOnInvalidPositiveIntegerSettings(t *testing.T) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			setValidEnv(t)
-			t.Setenv(tc.key, tc.value)
+		s.Run(tc.name, func() {
+			setValidEnv(s.T())
+			s.T().Setenv(tc.key, tc.value)
 
 			_, err := loadConfig()
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("expected error containing %q, got %v", tc.want, err)
-			}
+			s.Require().Error(err)
+			s.True(strings.Contains(err.Error(), tc.want), "expected error containing %q, got %v", tc.want, err)
 		})
 	}
 }

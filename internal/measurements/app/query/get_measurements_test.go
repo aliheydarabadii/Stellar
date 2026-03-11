@@ -5,24 +5,27 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/suite"
 )
 
-func TestNewGetMeasurementsHandlerRejectsNilReadModel(t *testing.T) {
-	t.Parallel()
-
-	_, err := NewGetMeasurementsHandler(nil)
-	if !errors.Is(err, ErrReadModelUnavailable) {
-		t.Fatalf("expected error %v, got %v", ErrReadModelUnavailable, err)
-	}
+type GetMeasurementsHandlerSuite struct {
+	suite.Suite
 }
 
-func TestGetMeasurementsHandlerHandleRejectsInvalidInput(t *testing.T) {
-	t.Parallel()
+func TestGetMeasurementsHandlerSuite(t *testing.T) {
+	suite.Run(t, new(GetMeasurementsHandlerSuite))
+}
 
+func (s *GetMeasurementsHandlerSuite) TestNewRejectsNilReadModel() {
+	_, err := NewGetMeasurementsHandler(nil)
+
+	s.ErrorIs(err, ErrReadModelUnavailable)
+}
+
+func (s *GetMeasurementsHandlerSuite) TestHandleRejectsInvalidInput() {
 	handler, err := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{})
-	if err != nil {
-		t.Fatalf("expected valid handler, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	now := time.Now().UTC()
 
@@ -60,26 +63,18 @@ func TestGetMeasurementsHandlerHandleRejectsInvalidInput(t *testing.T) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
+		s.Run(tc.name, func() {
 			_, err := handler.Handle(context.Background(), tc.query)
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("expected error %v, got %v", tc.want, err)
-			}
+			s.ErrorIs(err, tc.want)
 		})
 	}
 }
 
-func TestGetMeasurementsHandlerHandleRejectsRangeLargerThanConfiguredLimit(t *testing.T) {
-	t.Parallel()
-
+func (s *GetMeasurementsHandlerSuite) TestHandleRejectsRangeLargerThanConfiguredLimit() {
 	handler, err := NewGetMeasurementsHandlerWithConfig(&fakeMeasurementsReadModel{}, HandlerConfig{
 		MaxQueryRange: 5 * time.Minute,
 	})
-	if err != nil {
-		t.Fatalf("expected valid handler, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	now := time.Now().UTC().Truncate(time.Second)
 
@@ -88,21 +83,16 @@ func TestGetMeasurementsHandlerHandleRejectsRangeLargerThanConfiguredLimit(t *te
 		From:    now,
 		To:      now.Add(5*time.Minute + time.Second),
 	})
-	if !errors.Is(err, ErrQueryRangeTooLarge) {
-		t.Fatalf("expected error %v, got %v", ErrQueryRangeTooLarge, err)
-	}
+
+	s.ErrorIs(err, ErrQueryRangeTooLarge)
 }
 
-func TestGetMeasurementsHandlerHandleAllowsRangeAtConfiguredLimit(t *testing.T) {
-	t.Parallel()
-
+func (s *GetMeasurementsHandlerSuite) TestHandleAllowsRangeAtConfiguredLimit() {
 	readModel := &fakeMeasurementsReadModel{}
 	handler, err := NewGetMeasurementsHandlerWithConfig(readModel, HandlerConfig{
 		MaxQueryRange: 5 * time.Minute,
 	})
-	if err != nil {
-		t.Fatalf("expected valid handler, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	now := time.Now().UTC().Truncate(time.Second)
 
@@ -111,14 +101,11 @@ func TestGetMeasurementsHandlerHandleAllowsRangeAtConfiguredLimit(t *testing.T) 
 		From:    now,
 		To:      now.Add(5 * time.Minute),
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+
+	s.NoError(err)
 }
 
-func TestGetMeasurementsHandlerHandleReturnsPoints(t *testing.T) {
-	t.Parallel()
-
+func (s *GetMeasurementsHandlerSuite) TestHandleReturnsPoints() {
 	now := time.Now().UTC().Truncate(time.Second)
 	readModel := &fakeMeasurementsReadModel{
 		points: []MeasurementPoint{
@@ -131,51 +118,34 @@ func TestGetMeasurementsHandlerHandleReturnsPoints(t *testing.T) {
 	}
 
 	handler, err := NewGetMeasurementsHandler(readModel)
-	if err != nil {
-		t.Fatalf("expected valid handler, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	got, err := handler.Handle(context.Background(), GetMeasurements{
 		AssetID: " asset-1 ",
 		From:    now,
 		To:      now.Add(time.Second),
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	s.Require().NoError(err)
 
-	if got.AssetID != "asset-1" {
-		t.Fatalf("expected trimmed asset id, got %q", got.AssetID)
-	}
-
-	if len(got.Points) != 1 {
-		t.Fatalf("expected 1 point, got %d", len(got.Points))
-	}
-
-	if readModel.assetID != "asset-1" {
-		t.Fatalf("expected read model asset id asset-1, got %q", readModel.assetID)
-	}
+	s.Equal("asset-1", got.AssetID)
+	s.Len(got.Points, 1)
+	s.Equal("asset-1", readModel.assetID)
 }
 
-func TestGetMeasurementsHandlerHandleReturnsReadModelError(t *testing.T) {
-	t.Parallel()
-
+func (s *GetMeasurementsHandlerSuite) TestHandleReturnsReadModelError() {
 	wantErr := errors.New("read model failed")
 	now := time.Now().UTC()
 
 	handler, err := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{err: wantErr})
-	if err != nil {
-		t.Fatalf("expected valid handler, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	_, err = handler.Handle(context.Background(), GetMeasurements{
 		AssetID: "asset-1",
 		From:    now,
 		To:      now,
 	})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("expected error %v, got %v", wantErr, err)
-	}
+
+	s.ErrorIs(err, wantErr)
 }
 
 type fakeMeasurementsReadModel struct {

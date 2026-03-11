@@ -6,12 +6,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/suite"
+
 	"stellar/internal/measurements/app/query"
 )
 
-func TestReadModelGetMeasurementsMapsInfluxRows(t *testing.T) {
-	t.Parallel()
+type ReadModelSuite struct {
+	suite.Suite
+}
 
+func TestReadModelSuite(t *testing.T) {
+	suite.Run(t, new(ReadModelSuite))
+}
+
+func (s *ReadModelSuite) TestGetMeasurementsMapsInfluxRows() {
 	base := time.Date(2026, 3, 10, 12, 0, 0, 100_000_000, time.UTC)
 	model := &ReadModel{
 		bucket: "measurements",
@@ -24,9 +32,7 @@ func TestReadModelGetMeasurementsMapsInfluxRows(t *testing.T) {
 	}
 
 	got, err := model.GetMeasurements(context.Background(), "asset-1", base.Add(-time.Minute), base.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	want := []query.MeasurementPoint{
 		{
@@ -36,36 +42,21 @@ func TestReadModelGetMeasurementsMapsInfluxRows(t *testing.T) {
 		},
 	}
 
-	if len(got) != len(want) {
-		t.Fatalf("expected %d points, got %d", len(want), len(got))
-	}
-
-	if got[0] != want[0] {
-		t.Fatalf("expected %+v, got %+v", want[0], got[0])
-	}
+	s.Equal(want, got)
 }
 
-func TestReadModelGetMeasurementsHandlesEmptyResult(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsHandlesEmptyResult() {
 	model := &ReadModel{
 		bucket: "measurements",
 		query:  fakeQueryExecutor{},
 	}
 
 	got, err := model.GetMeasurements(context.Background(), "asset-1", time.Now().Add(-time.Minute), time.Now())
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if len(got) != 0 {
-		t.Fatalf("expected no points, got %d", len(got))
-	}
+	s.Require().NoError(err)
+	s.Empty(got)
 }
 
-func TestReadModelGetMeasurementsReturnsPointsOrderedByTimestamp(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsReturnsPointsOrderedByTimestamp() {
 	first := time.Date(2026, 3, 10, 12, 0, 0, 500_000_000, time.UTC)
 	second := first.Add(time.Second)
 	model := &ReadModel{
@@ -81,22 +72,12 @@ func TestReadModelGetMeasurementsReturnsPointsOrderedByTimestamp(t *testing.T) {
 	}
 
 	got, err := model.GetMeasurements(context.Background(), "asset-1", first.Add(-time.Minute), second.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if len(got) != 2 {
-		t.Fatalf("expected 2 points, got %d", len(got))
-	}
-
-	if !got[0].Timestamp.Before(got[1].Timestamp) {
-		t.Fatalf("expected ascending timestamps, got %v then %v", got[0].Timestamp, got[1].Timestamp)
-	}
+	s.Require().NoError(err)
+	s.Len(got, 2)
+	s.True(got[0].Timestamp.Before(got[1].Timestamp))
 }
 
-func TestReadModelGetMeasurementsSelectsLatestCompletePointWithinSecond(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSecond() {
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 
 	testCases := []struct {
@@ -157,15 +138,13 @@ func TestReadModelGetMeasurementsSelectsLatestCompletePointWithinSecond(t *testi
 				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
 			},
-			want: nil,
+			want: []query.MeasurementPoint{},
 		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
+		s.Run(tc.name, func() {
 			model := &ReadModel{
 				bucket: "measurements",
 				query: fakeQueryExecutor{
@@ -174,26 +153,13 @@ func TestReadModelGetMeasurementsSelectsLatestCompletePointWithinSecond(t *testi
 			}
 
 			got, err := model.GetMeasurements(context.Background(), "asset-1", base.Add(-time.Minute), base.Add(time.Minute))
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-
-			if len(got) != len(tc.want) {
-				t.Fatalf("expected %d points, got %d", len(tc.want), len(got))
-			}
-
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Fatalf("expected %+v, got %+v", tc.want[i], got[i])
-				}
-			}
+			s.Require().NoError(err)
+			s.Equal(tc.want, got)
 		})
 	}
 }
 
-func TestReadModelGetMeasurementsReturnsExecutorError(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsReturnsExecutorError() {
 	wantErr := errors.New("query failed")
 	model := &ReadModel{
 		bucket: "measurements",
@@ -201,14 +167,10 @@ func TestReadModelGetMeasurementsReturnsExecutorError(t *testing.T) {
 	}
 
 	_, err := model.GetMeasurements(context.Background(), "asset-1", time.Now().Add(-time.Minute), time.Now())
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("expected error %v, got %v", wantErr, err)
-	}
+	s.ErrorIs(err, wantErr)
 }
 
-func TestReadModelGetMeasurementsOpensCircuitAfterThreshold(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsOpensCircuitAfterThreshold() {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	executor := &countingQueryExecutor{err: errors.New("influx unavailable")}
 	model := &ReadModel{
@@ -226,18 +188,11 @@ func TestReadModelGetMeasurementsOpensCircuitAfterThreshold(t *testing.T) {
 	}
 
 	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	if !errors.Is(err, query.ErrReadModelUnavailable) {
-		t.Fatalf("expected read model unavailable error, got %v", err)
-	}
-
-	if executor.calls != 2 {
-		t.Fatalf("expected query executor to be called twice before circuit opened, got %d", executor.calls)
-	}
+	s.ErrorIs(err, query.ErrReadModelUnavailable)
+	s.Equal(2, executor.calls)
 }
 
-func TestReadModelGetMeasurementsHalfOpenClosesOnSuccess(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsHalfOpenClosesOnSuccess() {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	executor := &countingQueryExecutor{
 		err: errors.New("temporary failure"),
@@ -254,7 +209,7 @@ func TestReadModelGetMeasurementsHalfOpenClosesOnSuccess(t *testing.T) {
 
 	_, _ = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
 
-	waitForBreakerTimeout(t, 20*time.Millisecond)
+	waitForBreakerTimeout(20 * time.Millisecond)
 
 	now = now.Add(2 * time.Second)
 	executor.err = nil
@@ -264,23 +219,14 @@ func TestReadModelGetMeasurementsHalfOpenClosesOnSuccess(t *testing.T) {
 	}
 
 	got, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	if err != nil {
-		t.Fatalf("expected no error after half-open probe, got %v", err)
-	}
-
-	if len(got) != 1 {
-		t.Fatalf("expected 1 point after circuit closed, got %d", len(got))
-	}
+	s.Require().NoError(err)
+	s.Len(got, 1)
 
 	_, err = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	if err != nil {
-		t.Fatalf("expected subsequent call to pass after breaker closed, got %v", err)
-	}
+	s.NoError(err)
 }
 
-func TestReadModelGetMeasurementsTripsCircuitOnIteratorError(t *testing.T) {
-	t.Parallel()
-
+func (s *ReadModelSuite) TestGetMeasurementsTripsCircuitOnIteratorError() {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	wantErr := errors.New("stream failed")
 	model := &ReadModel{
@@ -300,14 +246,10 @@ func TestReadModelGetMeasurementsTripsCircuitOnIteratorError(t *testing.T) {
 	}
 
 	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	if !errors.Is(err, query.ErrReadModelUnavailable) {
-		t.Fatalf("expected read model unavailable error, got %v", err)
-	}
+	s.ErrorIs(err, query.ErrReadModelUnavailable)
 
 	_, err = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	if !errors.Is(err, query.ErrReadModelUnavailable) {
-		t.Fatalf("expected open circuit on second call, got %v", err)
-	}
+	s.ErrorIs(err, query.ErrReadModelUnavailable)
 }
 
 type fakeQueryExecutor struct {

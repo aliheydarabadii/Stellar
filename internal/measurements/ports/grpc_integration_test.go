@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,11 +22,19 @@ import (
 	"stellar/internal/measurements/testsupport"
 )
 
-func TestGRPCServerIntegrationGetMeasurements(t *testing.T) {
-	influx := testsupport.StartInfluxDB(t)
+type GRPCIntegrationSuite struct {
+	suite.Suite
+}
+
+func TestGRPCIntegrationSuite(t *testing.T) {
+	suite.Run(t, new(GRPCIntegrationSuite))
+}
+
+func (s *GRPCIntegrationSuite) TestGetMeasurements() {
+	influx := testsupport.StartInfluxDB(s.T())
 
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	testsupport.SeedMeasurements(t, influx.Client, influx.Org, influx.Bucket, []testsupport.MeasurementSeed{
+	testsupport.SeedMeasurements(s.T(), influx.Client, influx.Org, influx.Bucket, []testsupport.MeasurementSeed{
 		{
 			AssetID:     "asset-1",
 			Timestamp:   base,
@@ -52,14 +61,12 @@ func TestGRPCServerIntegrationGetMeasurements(t *testing.T) {
 
 	readModel := influxdb.NewReadModel(influx.Client, influx.Org, influx.Bucket, 10*time.Second, influxdb.CircuitBreakerConfig{})
 	application, err := app.New(readModel)
-	if err != nil {
-		t.Fatalf("create application: %v", err)
-	}
+	s.Require().NoError(err)
 
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
 	measurementsv1.RegisterMeasurementServiceServer(server, NewGRPCServer(application))
-	t.Cleanup(server.Stop)
+	s.T().Cleanup(server.Stop)
 
 	go func() {
 		_ = server.Serve(listener)
@@ -74,13 +81,9 @@ func TestGRPCServerIntegrationGetMeasurements(t *testing.T) {
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
-	if err != nil {
-		t.Fatalf("dial gRPC server: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := conn.Close(); err != nil {
-			t.Errorf("close gRPC client conn: %v", err)
-		}
+	s.Require().NoError(err)
+	s.T().Cleanup(func() {
+		s.NoError(conn.Close())
 	})
 
 	client := measurementsv1.NewMeasurementServiceClient(conn)
@@ -93,28 +96,17 @@ func TestGRPCServerIntegrationGetMeasurements(t *testing.T) {
 		From:    timestamppb.New(base),
 		To:      timestamppb.New(base.Add(2 * time.Second)),
 	})
-	if err != nil {
-		t.Fatalf("get measurements via gRPC: %v", err)
-	}
+	s.Require().NoError(err)
 
-	if resp.GetAssetId() != "asset-1" {
-		t.Fatalf("expected asset-1, got %q", resp.GetAssetId())
-	}
-	if len(resp.GetPoints()) != 2 {
-		t.Fatalf("expected 2 points, got %d", len(resp.GetPoints()))
-	}
-	if !resp.GetPoints()[0].GetTimestamp().AsTime().Equal(base) {
-		t.Fatalf("expected first timestamp %s, got %s", base, resp.GetPoints()[0].GetTimestamp().AsTime())
-	}
-	if resp.GetPoints()[1].GetSetpoint() != 20 || resp.GetPoints()[1].GetActivePower() != 19 {
-		t.Fatalf("expected second point values 20/19, got %v/%v", resp.GetPoints()[1].GetSetpoint(), resp.GetPoints()[1].GetActivePower())
-	}
+	s.Equal("asset-1", resp.GetAssetId())
+	s.Len(resp.GetPoints(), 2)
+	s.True(resp.GetPoints()[0].GetTimestamp().AsTime().Equal(base))
+	s.Equal(20.0, resp.GetPoints()[1].GetSetpoint())
+	s.Equal(19.0, resp.GetPoints()[1].GetActivePower())
 
 	_, err = client.GetMeasurements(requestCtx, &measurementsv1.GetMeasurementsRequest{
 		AssetId: "asset-1",
 		To:      timestamppb.New(base),
 	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("expected InvalidArgument for missing from, got %v", status.Code(err))
-	}
+	s.Equal(codes.InvalidArgument, status.Code(err))
 }

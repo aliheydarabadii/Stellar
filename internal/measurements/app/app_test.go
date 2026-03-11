@@ -2,41 +2,39 @@ package app
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/suite"
 
 	"stellar/internal/measurements/app/query"
 )
 
-func TestNewRejectsNilReadModel(t *testing.T) {
-	t.Parallel()
-
-	_, err := New(nil)
-	if !errors.Is(err, query.ErrReadModelUnavailable) {
-		t.Fatalf("expected ErrReadModelUnavailable, got %v", err)
-	}
+type ApplicationSuite struct {
+	suite.Suite
 }
 
-func TestNewBuildsApplicationWithValidReadModel(t *testing.T) {
-	t.Parallel()
+func TestApplicationSuite(t *testing.T) {
+	suite.Run(t, new(ApplicationSuite))
+}
 
+func (s *ApplicationSuite) TestNewRejectsNilReadModel() {
+	_, err := New(nil)
+
+	s.ErrorIs(err, query.ErrReadModelUnavailable)
+}
+
+func (s *ApplicationSuite) TestNewBuildsApplicationWithValidReadModel() {
 	application, err := New(appReadModelStub{})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	s.Require().NoError(err)
 
 	series, err := application.Queries.GetMeasurements.Handle(context.Background(), query.GetMeasurements{
 		AssetID: "asset-1",
 		From:    time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
 		To:      time.Date(2026, 3, 10, 12, 0, 1, 0, time.UTC),
 	})
-	if err != nil {
-		t.Fatalf("expected handler to be wired, got %v", err)
-	}
-	if series.AssetID != "asset-1" {
-		t.Fatalf("expected asset-1, got %q", series.AssetID)
-	}
+	s.Require().NoError(err)
+	s.Equal("asset-1", series.AssetID)
 }
 
 type appReadModelStub struct{}

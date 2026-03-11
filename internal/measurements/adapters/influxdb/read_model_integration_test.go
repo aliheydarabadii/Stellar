@@ -7,15 +7,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/suite"
+
 	"stellar/internal/measurements/app/query"
 	"stellar/internal/measurements/testsupport"
 )
 
-func TestReadModelIntegrationGetMeasurements(t *testing.T) {
-	influx := testsupport.StartInfluxDB(t)
+type ReadModelIntegrationSuite struct {
+	suite.Suite
+}
+
+func TestReadModelIntegrationSuite(t *testing.T) {
+	suite.Run(t, new(ReadModelIntegrationSuite))
+}
+
+func (s *ReadModelIntegrationSuite) TestGetMeasurements() {
+	influx := testsupport.StartInfluxDB(s.T())
 
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	seedFixtureMeasurements(t, influx, base)
+	seedFixtureMeasurements(s.T(), influx, base)
 
 	readModel := NewReadModel(influx.Client, influx.Org, influx.Bucket, 10*time.Second, CircuitBreakerConfig{})
 
@@ -23,9 +33,7 @@ func TestReadModelIntegrationGetMeasurements(t *testing.T) {
 	defer cancel()
 
 	got, err := readModel.GetMeasurements(ctx, "asset-1", base, base.Add(4*time.Second+500*time.Millisecond))
-	if err != nil {
-		t.Fatalf("get measurements: %v", err)
-	}
+	s.Require().NoError(err)
 
 	want := []query.MeasurementPoint{
 		{
@@ -50,14 +58,14 @@ func TestReadModelIntegrationGetMeasurements(t *testing.T) {
 		},
 	}
 
-	assertMeasurementSeries(t, got, want)
+	s.assertMeasurementSeries(got, want)
 }
 
-func TestReadModelIntegrationAppliesTimeRangeAndAssetFiltering(t *testing.T) {
-	influx := testsupport.StartInfluxDB(t)
+func (s *ReadModelIntegrationSuite) TestAppliesTimeRangeAndAssetFiltering() {
+	influx := testsupport.StartInfluxDB(s.T())
 
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	seedFixtureMeasurements(t, influx, base)
+	seedFixtureMeasurements(s.T(), influx, base)
 
 	readModel := NewReadModel(influx.Client, influx.Org, influx.Bucket, 10*time.Second, CircuitBreakerConfig{})
 
@@ -65,9 +73,7 @@ func TestReadModelIntegrationAppliesTimeRangeAndAssetFiltering(t *testing.T) {
 	defer cancel()
 
 	got, err := readModel.GetMeasurements(ctx, "asset-1", base.Add(time.Second), base.Add(2*time.Second+900*time.Millisecond))
-	if err != nil {
-		t.Fatalf("get measurements with range filter: %v", err)
-	}
+	s.Require().NoError(err)
 
 	want := []query.MeasurementPoint{
 		{
@@ -82,7 +88,20 @@ func TestReadModelIntegrationAppliesTimeRangeAndAssetFiltering(t *testing.T) {
 		},
 	}
 
-	assertMeasurementSeries(t, got, want)
+	s.assertMeasurementSeries(got, want)
+}
+
+func (s *ReadModelIntegrationSuite) assertMeasurementSeries(got, want []query.MeasurementPoint) {
+	s.Require().Len(got, len(want))
+
+	for i := range got {
+		s.True(got[i].Timestamp.Equal(want[i].Timestamp), "point %d: expected timestamp %s, got %s", i, want[i].Timestamp, got[i].Timestamp)
+		s.Equal(want[i].Setpoint, got[i].Setpoint, "point %d: expected setpoint", i)
+		s.Equal(want[i].ActivePower, got[i].ActivePower, "point %d: expected active power", i)
+		if i > 0 {
+			s.False(got[i].Timestamp.Before(got[i-1].Timestamp), "points are not sorted ascending at index %d", i)
+		}
+	}
 }
 
 func seedFixtureMeasurements(t *testing.T, influx *testsupport.TestInflux, base time.Time) {
@@ -159,27 +178,4 @@ func seedFixtureMeasurements(t *testing.T, influx *testsupport.TestInflux, base 
 			ActivePower: testsupport.Float64Ptr(59),
 		},
 	})
-}
-
-func assertMeasurementSeries(t *testing.T, got, want []query.MeasurementPoint) {
-	t.Helper()
-
-	if len(got) != len(want) {
-		t.Fatalf("expected %d points, got %d", len(want), len(got))
-	}
-
-	for i := range got {
-		if !got[i].Timestamp.Equal(want[i].Timestamp) {
-			t.Fatalf("point %d: expected timestamp %s, got %s", i, want[i].Timestamp, got[i].Timestamp)
-		}
-		if got[i].Setpoint != want[i].Setpoint {
-			t.Fatalf("point %d: expected setpoint %v, got %v", i, want[i].Setpoint, got[i].Setpoint)
-		}
-		if got[i].ActivePower != want[i].ActivePower {
-			t.Fatalf("point %d: expected active power %v, got %v", i, want[i].ActivePower, got[i].ActivePower)
-		}
-		if i > 0 && got[i].Timestamp.Before(got[i-1].Timestamp) {
-			t.Fatalf("points are not sorted ascending at index %d", i)
-		}
-	}
 }
