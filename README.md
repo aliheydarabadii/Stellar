@@ -100,6 +100,7 @@ The service starts:
 - an HTTP health server with `/healthz` and `/readyz` on `HEALTH_LISTEN_ADDR`
 
 The gRPC server includes panic recovery and returns `Internal` instead of crashing the process if a handler panics.
+It also accepts `x-request-id` or `x-correlation-id` gRPC metadata, propagates the request ID through the service context, echoes it back as `x-request-id`, and includes it in request logs.
 
 ## Assumptions
 
