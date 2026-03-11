@@ -1,0 +1,93 @@
+services:
+  integration-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      modbus-server:
+        condition: service_healthy
+    environment:
+      ASSET_ID: "871689260010377213"
+      ASSET_TYPE: "solar_panel"
+      MODBUS_HOST: "modbus-server"
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      MODBUS_REGISTER_TYPE: "holding"
+      MODBUS_SETPOINT_ADDRESS: "40100"
+      MODBUS_ACTIVE_POWER_ADDRESS: "40101"
+      MODBUS_SIGNED_VALUES: "true"
+      POLL_INTERVAL: "1s"
+      INFLUX_URL: "http://influxdb:8086"
+      INFLUX_TOKEN: "dev-token"
+      INFLUX_ORG: "local"
+      INFLUX_BUCKET: "telemetry"
+      INFLUX_LOG_LEVEL: "0"
+      INFLUX_WRITE_MODE: "blocking"
+      TRACING_ENABLED: "${TRACING_ENABLED:-false}"
+      TRACING_ENDPOINT: "${TRACING_ENDPOINT:-}"
+      TRACING_INSECURE: "${TRACING_INSECURE:-true}"
+      TRACING_SAMPLE_RATIO: "${TRACING_SAMPLE_RATIO:-1.0}"
+      HTTP_PORT: "8080"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: "setup"
+      DOCKER_INFLUXDB_INIT_USERNAME: "admin"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "admin12345"
+      DOCKER_INFLUXDB_INIT_ORG: "local"
+      DOCKER_INFLUXDB_INIT_BUCKET: "telemetry"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "dev-token"
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  modbus-server:
+    image: oitc/modbus-server:latest
+    command: -f /server_config.json
+    volumes:
+      - ./docker/modbus/server_config.json:/server_config.json:ro
+    ports:
+      - "5020:5020"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s = socket.create_connection(('127.0.0.1', 5020), 1); s.close()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    depends_on:
+      integration-service:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  influxdb-data:
