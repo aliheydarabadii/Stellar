@@ -1,10 +1,10 @@
-package ports
+package metrics
 
 import (
 	"context"
 	"time"
 
-	"stellar/internal/telemetry/app/command"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 	"stellar/internal/telemetry/domain"
 
 	"go.opentelemetry.io/otel"
@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func InstrumentTelemetrySource(next command.TelemetrySource, metrics *Metrics, tracer trace.Tracer) command.TelemetrySource {
+func InstrumentTelemetrySource(next collecttelemetry.TelemetrySource, metrics *Metrics, tracer trace.Tracer) collecttelemetry.TelemetrySource {
 	if next == nil {
 		return next
 	}
@@ -23,7 +23,7 @@ func InstrumentTelemetrySource(next command.TelemetrySource, metrics *Metrics, t
 	}
 
 	if tracer == nil {
-		tracer = otel.Tracer("stellar/internal/telemetry/ports")
+		tracer = otel.Tracer("stellar/internal/platform/metrics")
 	}
 
 	return instrumentedTelemetrySource{
@@ -33,7 +33,7 @@ func InstrumentTelemetrySource(next command.TelemetrySource, metrics *Metrics, t
 	}
 }
 
-func InstrumentMeasurementRepository(next command.MeasurementRepository, metrics *Metrics, tracer trace.Tracer) command.MeasurementRepository {
+func InstrumentMeasurementRepository(next collecttelemetry.MeasurementRepository, metrics *Metrics, tracer trace.Tracer) collecttelemetry.MeasurementRepository {
 	if next == nil {
 		return next
 	}
@@ -43,7 +43,7 @@ func InstrumentMeasurementRepository(next command.MeasurementRepository, metrics
 	}
 
 	if tracer == nil {
-		tracer = otel.Tracer("stellar/internal/telemetry/ports")
+		tracer = otel.Tracer("stellar/internal/platform/metrics")
 	}
 
 	return instrumentedMeasurementRepository{
@@ -54,12 +54,12 @@ func InstrumentMeasurementRepository(next command.MeasurementRepository, metrics
 }
 
 type instrumentedTelemetrySource struct {
-	next    command.TelemetrySource
+	next    collecttelemetry.TelemetrySource
 	metrics *Metrics
 	tracer  trace.Tracer
 }
 
-func (s instrumentedTelemetrySource) Read(ctx context.Context) (command.TelemetryReading, error) {
+func (s instrumentedTelemetrySource) Read(ctx context.Context) (collecttelemetry.TelemetryReading, error) {
 	ctx, span := s.tracer.Start(ctx, "telemetry.source.read", trace.WithSpanKind(trace.SpanKindClient))
 	startedAt := time.Now()
 	reading, err := s.next.Read(ctx)
@@ -78,7 +78,7 @@ func (s instrumentedTelemetrySource) Read(ctx context.Context) (command.Telemetr
 }
 
 type instrumentedMeasurementRepository struct {
-	next    command.MeasurementRepository
+	next    collecttelemetry.MeasurementRepository
 	metrics *Metrics
 	tracer  trace.Tracer
 }

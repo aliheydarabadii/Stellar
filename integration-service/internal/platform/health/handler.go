@@ -1,4 +1,4 @@
-package ports
+package health
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	metricsplatform "stellar/internal/platform/metrics"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -17,12 +19,12 @@ type HTTPServer interface {
 
 type Server struct {
 	logger    *slog.Logger
-	metrics   *Metrics
+	metrics   *metricsplatform.Metrics
 	readiness *Readiness
 	server    *http.Server
 }
 
-func NewHTTPServer(addr string, logger *slog.Logger, metrics *Metrics, readiness *Readiness) (*Server, error) {
+func NewServer(addr string, logger *slog.Logger, metrics *metricsplatform.Metrics, readiness *Readiness) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("http server address must not be empty")
 	}
@@ -32,7 +34,7 @@ func NewHTTPServer(addr string, logger *slog.Logger, metrics *Metrics, readiness
 	}
 
 	if metrics == nil {
-		metrics = NewMetrics()
+		metrics = metricsplatform.NewMetrics()
 	}
 
 	server := &Server{

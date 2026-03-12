@@ -1,4 +1,4 @@
-package command_test
+package collecttelemetry_test
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	command "stellar/internal/telemetry/app/command"
-	commandmocks "stellar/internal/telemetry/app/command/mocks"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
+	collecttelemetrymocks "stellar/internal/telemetry/application/collect_telemetry/mocks"
 	"stellar/internal/telemetry/domain"
 
 	"github.com/stretchr/testify/mock"
@@ -18,9 +18,9 @@ type CollectTelemetryHandlerSuite struct {
 	suite.Suite
 	ctx         context.Context
 	collectedAt time.Time
-	source      *commandmocks.TelemetrySource
-	repository  *commandmocks.MeasurementRepository
-	handler     command.CollectTelemetryHandler
+	source      *collecttelemetrymocks.TelemetrySource
+	repository  *collecttelemetrymocks.MeasurementRepository
+	handler     collecttelemetry.UseCase
 }
 
 func TestCollectTelemetryHandlerSuite(t *testing.T) {
@@ -32,15 +32,15 @@ func TestCollectTelemetryHandlerSuite(t *testing.T) {
 func (s *CollectTelemetryHandlerSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.collectedAt = time.Date(2026, time.March, 9, 12, 0, 0, 0, time.UTC)
-	s.source = commandmocks.NewTelemetrySource(s.T())
-	s.repository = commandmocks.NewMeasurementRepository(s.T())
+	s.source = collecttelemetrymocks.NewTelemetrySource(s.T())
+	s.repository = collecttelemetrymocks.NewMeasurementRepository(s.T())
 	var err error
-	s.handler, err = command.NewCollectTelemetryHandler(domain.DefaultAssetID, s.source, s.repository)
+	s.handler, err = collecttelemetry.NewUseCase(domain.DefaultAssetID, s.source, s.repository)
 	s.Require().NoError(err)
 }
 
 func (s *CollectTelemetryHandlerSuite) TestValidReadingGetsSaved() {
-	reading := command.TelemetryReading{
+	reading := collecttelemetry.TelemetryReading{
 		Setpoint:    100,
 		ActivePower: 80,
 	}
@@ -54,21 +54,21 @@ func (s *CollectTelemetryHandlerSuite) TestValidReadingGetsSaved() {
 	s.source.EXPECT().Read(mock.Anything).Return(reading, nil).Once()
 	s.repository.EXPECT().Save(mock.Anything, expectedMeasurement).Return(nil).Once()
 
-	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+	err := s.handler.Handle(s.ctx, collecttelemetry.CollectTelemetry{CollectedAt: s.collectedAt})
 
 	s.NoError(err)
 }
 
 func (s *CollectTelemetryHandlerSuite) TestInvalidReadingDoesNotGetSaved() {
-	s.source.EXPECT().Read(mock.Anything).Return(command.TelemetryReading{
+	s.source.EXPECT().Read(mock.Anything).Return(collecttelemetry.TelemetryReading{
 		Setpoint:    10,
 		ActivePower: 20,
 	}, nil).Once()
 
-	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+	err := s.handler.Handle(s.ctx, collecttelemetry.CollectTelemetry{CollectedAt: s.collectedAt})
 
 	s.Error(err)
-	s.ErrorIs(err, command.ErrInvalidTelemetry)
+	s.ErrorIs(err, collecttelemetry.ErrInvalidTelemetry)
 	s.ErrorIs(err, domain.ErrInvalidMeasurement)
 	s.repository.AssertNotCalled(s.T(), "Save", mock.Anything, mock.Anything)
 }
@@ -76,12 +76,12 @@ func (s *CollectTelemetryHandlerSuite) TestInvalidReadingDoesNotGetSaved() {
 func (s *CollectTelemetryHandlerSuite) TestSourceErrorIsReturned() {
 	sourceErr := errors.New("source unavailable")
 
-	s.source.EXPECT().Read(mock.Anything).Return(command.TelemetryReading{}, sourceErr).Once()
+	s.source.EXPECT().Read(mock.Anything).Return(collecttelemetry.TelemetryReading{}, sourceErr).Once()
 
-	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+	err := s.handler.Handle(s.ctx, collecttelemetry.CollectTelemetry{CollectedAt: s.collectedAt})
 
 	s.Error(err)
-	s.ErrorIs(err, command.ErrTelemetrySource)
+	s.ErrorIs(err, collecttelemetry.ErrTelemetrySource)
 	s.ErrorIs(err, sourceErr)
 	s.repository.AssertNotCalled(s.T(), "Save", mock.Anything, mock.Anything)
 }
@@ -95,16 +95,16 @@ func (s *CollectTelemetryHandlerSuite) TestRepositoryErrorIsReturned() {
 		CollectedAt: s.collectedAt,
 	}
 
-	s.source.EXPECT().Read(mock.Anything).Return(command.TelemetryReading{
+	s.source.EXPECT().Read(mock.Anything).Return(collecttelemetry.TelemetryReading{
 		Setpoint:    100,
 		ActivePower: 80,
 	}, nil).Once()
 	s.repository.EXPECT().Save(mock.Anything, expectedMeasurement).Return(repositoryErr).Once()
 
-	err := s.handler.Handle(s.ctx, command.CollectTelemetry{CollectedAt: s.collectedAt})
+	err := s.handler.Handle(s.ctx, collecttelemetry.CollectTelemetry{CollectedAt: s.collectedAt})
 
 	s.Error(err)
-	s.ErrorIs(err, command.ErrMeasurementPersistence)
+	s.ErrorIs(err, collecttelemetry.ErrMeasurementPersistence)
 	s.ErrorIs(err, repositoryErr)
 }
 
@@ -112,8 +112,8 @@ func (s *CollectTelemetryHandlerSuite) TestNewCollectTelemetryHandlerRejectsInva
 	testCases := []struct {
 		name       string
 		assetID    domain.AssetID
-		source     command.TelemetrySource
-		repository command.MeasurementRepository
+		source     collecttelemetry.TelemetrySource
+		repository collecttelemetry.MeasurementRepository
 		wantErr    error
 	}{
 		{
@@ -121,31 +121,31 @@ func (s *CollectTelemetryHandlerSuite) TestNewCollectTelemetryHandlerRejectsInva
 			assetID:    "",
 			source:     s.source,
 			repository: s.repository,
-			wantErr:    command.ErrEmptyAssetID,
+			wantErr:    collecttelemetry.ErrEmptyAssetID,
 		},
 		{
 			name:       "nil source",
 			assetID:    domain.DefaultAssetID,
 			source:     nil,
 			repository: s.repository,
-			wantErr:    command.ErrNilTelemetrySource,
+			wantErr:    collecttelemetry.ErrNilTelemetrySource,
 		},
 		{
 			name:       "nil repository",
 			assetID:    domain.DefaultAssetID,
 			source:     s.source,
 			repository: nil,
-			wantErr:    command.ErrNilMeasurementRepository,
+			wantErr:    collecttelemetry.ErrNilMeasurementRepository,
 		},
 	}
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
-			handler, err := command.NewCollectTelemetryHandler(tc.assetID, tc.source, tc.repository)
+			handler, err := collecttelemetry.NewUseCase(tc.assetID, tc.source, tc.repository)
 
 			s.Error(err)
 			s.ErrorIs(err, tc.wantErr)
-			s.Equal(command.CollectTelemetryHandler{}, handler)
+			s.Equal(collecttelemetry.UseCase{}, handler)
 		})
 	}
 }

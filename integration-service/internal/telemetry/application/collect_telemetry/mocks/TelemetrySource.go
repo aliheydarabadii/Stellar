@@ -4,7 +4,7 @@ package mocks
 
 import (
 	context "context"
-	command "stellar/internal/telemetry/app/command"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -23,22 +23,22 @@ func (_m *TelemetrySource) EXPECT() *TelemetrySource_Expecter {
 }
 
 // Read provides a mock function with given fields: ctx
-func (_m *TelemetrySource) Read(ctx context.Context) (command.TelemetryReading, error) {
+func (_m *TelemetrySource) Read(ctx context.Context) (collecttelemetry.TelemetryReading, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Read")
 	}
 
-	var r0 command.TelemetryReading
+	var r0 collecttelemetry.TelemetryReading
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (command.TelemetryReading, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) (collecttelemetry.TelemetryReading, error)); ok {
 		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) command.TelemetryReading); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) collecttelemetry.TelemetryReading); ok {
 		r0 = rf(ctx)
 	} else {
-		r0 = ret.Get(0).(command.TelemetryReading)
+		r0 = ret.Get(0).(collecttelemetry.TelemetryReading)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
@@ -68,12 +68,12 @@ func (_c *TelemetrySource_Read_Call) Run(run func(ctx context.Context)) *Telemet
 	return _c
 }
 
-func (_c *TelemetrySource_Read_Call) Return(_a0 command.TelemetryReading, _a1 error) *TelemetrySource_Read_Call {
+func (_c *TelemetrySource_Read_Call) Return(_a0 collecttelemetry.TelemetryReading, _a1 error) *TelemetrySource_Read_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *TelemetrySource_Read_Call) RunAndReturn(run func(context.Context) (command.TelemetryReading, error)) *TelemetrySource_Read_Call {
+func (_c *TelemetrySource_Read_Call) RunAndReturn(run func(context.Context) (collecttelemetry.TelemetryReading, error)) *TelemetrySource_Read_Call {
 	_c.Call.Return(run)
 	return _c
 }

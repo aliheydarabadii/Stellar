@@ -1,5 +1,5 @@
-// Package ports contains runtime ports for driving the application.
-package ports
+// Package worker contains inbound worker execution for telemetry collection.
+package worker
 
 import (
 	"context"
@@ -12,7 +12,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"stellar/internal/telemetry/app/command"
+	healthplatform "stellar/internal/platform/health"
+	metricsplatform "stellar/internal/platform/metrics"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 	"stellar/internal/telemetry/domain"
 )
 
@@ -20,20 +22,16 @@ type Worker interface {
 	Start(ctx context.Context) error
 }
 
-type collectTelemetryHandler interface {
-	Handle(ctx context.Context, cmd command.CollectTelemetry) error
-}
-
 type TickerWorker struct {
 	logger    *slog.Logger
 	interval  time.Duration
-	handler   collectTelemetryHandler
-	metrics   *Metrics
-	readiness *Readiness
+	handler   collecttelemetry.CommandHandler
+	metrics   *metricsplatform.Metrics
+	readiness *healthplatform.Readiness
 	tracer    trace.Tracer
 }
 
-func NewTickerWorker(interval time.Duration, handler collectTelemetryHandler, logger *slog.Logger, metrics *Metrics, readiness *Readiness, tracer trace.Tracer) (*TickerWorker, error) {
+func NewRunner(interval time.Duration, handler collecttelemetry.CommandHandler, logger *slog.Logger, metrics *metricsplatform.Metrics, readiness *healthplatform.Readiness, tracer trace.Tracer) (*TickerWorker, error) {
 	if interval <= 0 {
 		return nil, fmt.Errorf("worker interval must be positive")
 	}
@@ -47,11 +45,11 @@ func NewTickerWorker(interval time.Duration, handler collectTelemetryHandler, lo
 	}
 
 	if metrics == nil {
-		metrics = NewMetrics()
+		metrics = metricsplatform.NewMetrics()
 	}
 
 	if tracer == nil {
-		tracer = otel.Tracer("stellar/internal/telemetry/ports")
+		tracer = otel.Tracer("stellar/internal/telemetry/adapters/inbound/worker")
 	}
 
 	return &TickerWorker{
@@ -84,7 +82,7 @@ func (w *TickerWorker) Start(ctx context.Context) error {
 				"telemetry.collect",
 				trace.WithAttributes(attribute.String("collected_at", collectedAt.Format(time.RFC3339Nano))),
 			)
-			err := w.handler.Handle(spanCtx, command.CollectTelemetry{
+			err := w.handler.Handle(spanCtx, collecttelemetry.CollectTelemetry{
 				CollectedAt: collectedAt,
 			})
 			w.metrics.ObserveCollectionDuration(time.Since(startedAt))
@@ -100,17 +98,17 @@ func (w *TickerWorker) Start(ctx context.Context) error {
 			span.SetStatus(codes.Error, err.Error())
 			span.End()
 
-			if errors.Is(err, command.ErrInvalidTelemetry) || errors.Is(err, domain.ErrInvalidMeasurement) {
+			if errors.Is(err, collecttelemetry.ErrInvalidTelemetry) || errors.Is(err, domain.ErrInvalidMeasurement) {
 				w.metrics.RecordValidationFailure()
 				w.logger.Warn("telemetry validation failed; skipping persistence", "error", err, "collected_at", collectedAt)
 				continue
 			}
 
 			w.metrics.RecordFailure()
-			if errors.Is(err, command.ErrTelemetrySource) {
+			if errors.Is(err, collecttelemetry.ErrTelemetrySource) {
 				w.metrics.RecordSourceFailure()
 			}
-			if errors.Is(err, command.ErrMeasurementPersistence) {
+			if errors.Is(err, collecttelemetry.ErrMeasurementPersistence) {
 				w.metrics.RecordPersistenceFailure()
 			}
 

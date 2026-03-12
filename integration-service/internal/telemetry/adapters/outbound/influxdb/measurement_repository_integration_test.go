@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"stellar/internal/telemetry/adapters/influxdb"
+	influxdb "stellar/internal/telemetry/adapters/outbound/influxdb"
 	"stellar/internal/telemetry/domain"
 )
 

@@ -13,10 +13,15 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"stellar/internal/telemetry/adapters/influxdb"
-	"stellar/internal/telemetry/adapters/modbus"
-	"stellar/internal/telemetry/app"
-	"stellar/internal/telemetry/ports"
+	configplatform "stellar/internal/platform/config"
+	healthplatform "stellar/internal/platform/health"
+	loggingplatform "stellar/internal/platform/logging"
+	metricsplatform "stellar/internal/platform/metrics"
+	tracingplatform "stellar/internal/platform/tracing"
+	workeradapter "stellar/internal/telemetry/adapters/inbound/worker"
+	influxdbadapter "stellar/internal/telemetry/adapters/outbound/influxdb"
+	modbusadapter "stellar/internal/telemetry/adapters/outbound/modbus"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 )
 
 const (
@@ -25,14 +30,21 @@ const (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{})).With("service", serviceName)
-	slog.SetDefault(logger)
+	bootstrapLogger := loggingplatform.NewDefaultLogger().With("service", serviceName)
 
-	cfg, err := loadConfig()
+	cfg, err := configplatform.Load()
 	if err != nil {
-		logger.Error("failed to load config", "error", err)
+		bootstrapLogger.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	logger, err := loggingplatform.NewLogger(cfg.LogLevel)
+	if err != nil {
+		bootstrapLogger.Error("failed to build logger", "error", err)
+		os.Exit(1)
+	}
+	logger = logger.With("service", serviceName)
+	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -43,8 +55,8 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, cfg config, logger *slog.Logger) (runErr error) {
-	shutdownTracing, err := ports.SetupTracing(ctx, serviceName, cfg.Tracing)
+func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (runErr error) {
+	shutdownTracing, err := tracingplatform.SetupTracing(ctx, serviceName, cfg.Tracing)
 	if err != nil {
 		return fmt.Errorf("setup tracing: %w", err)
 	}
@@ -57,23 +69,23 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) (runErr error) {
 		}
 	}()
 
-	addressMapper := modbus.NewAddressMapper()
-	decoder := modbus.NewDecoder()
-	metrics := ports.NewMetrics()
+	addressMapper := modbusadapter.NewAddressMapper()
+	decoder := modbusadapter.NewDecoder()
+	metrics := metricsplatform.NewMetrics()
 	tracer := otel.Tracer(serviceName)
-	readiness, err := ports.NewReadiness(cfg.ReadinessStaleAfter)
+	readiness, err := healthplatform.NewReadiness(cfg.ReadinessStaleAfter)
 	if err != nil {
 		return fmt.Errorf("create readiness: %w", err)
 	}
 
-	source, err := modbus.NewSource(cfg.Modbus, addressMapper, decoder)
+	source, err := modbusadapter.NewSource(cfg.Modbus, addressMapper, decoder)
 	if err != nil {
 		return fmt.Errorf("create modbus source: %w", err)
 	}
-	instrumentedSource := ports.InstrumentTelemetrySource(source, metrics, tracer)
+	instrumentedSource := metricsplatform.InstrumentTelemetrySource(source, metrics, tracer)
 
-	pointMapper := influxdb.NewPointMapperWithAssetType(string(cfg.AssetType))
-	repository, err := influxdb.NewMeasurementRepositoryWithConfig(cfg.Influx, pointMapper)
+	pointMapper := influxdbadapter.NewPointMapperWithAssetType(string(cfg.AssetType))
+	repository, err := influxdbadapter.NewMeasurementRepositoryWithConfig(cfg.Influx, pointMapper)
 	if err != nil {
 		return fmt.Errorf("create influxdb repository: %w", err)
 	}
@@ -87,19 +99,19 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) (runErr error) {
 			logger.Error("failed to close influxdb repository", "error", err)
 		}
 	}()
-	instrumentedRepository := ports.InstrumentMeasurementRepository(repository, metrics, tracer)
+	instrumentedRepository := metricsplatform.InstrumentMeasurementRepository(repository, metrics, tracer)
 
-	application, err := app.NewApplication(cfg.AssetID, instrumentedSource, instrumentedRepository)
+	collectTelemetry, err := collecttelemetry.NewUseCase(cfg.AssetID, instrumentedSource, instrumentedRepository)
 	if err != nil {
-		return fmt.Errorf("create application: %w", err)
+		return fmt.Errorf("create collect telemetry use case: %w", err)
 	}
 
-	worker, err := ports.NewTickerWorker(cfg.PollInterval, application.Commands.CollectTelemetry, logger, metrics, readiness, tracer)
+	worker, err := workeradapter.NewRunner(cfg.PollInterval, collectTelemetry, logger, metrics, readiness, tracer)
 	if err != nil {
 		return fmt.Errorf("create worker: %w", err)
 	}
 
-	httpServer, err := ports.NewHTTPServer(httpAddress(cfg.HTTPPort), logger, metrics, readiness)
+	httpServer, err := healthplatform.NewServer(httpAddress(cfg.HTTPPort), logger, metrics, readiness)
 	if err != nil {
 		return fmt.Errorf("create http server: %w", err)
 	}
@@ -123,7 +135,7 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) (runErr error) {
 	return runErr
 }
 
-func runComponents(ctx context.Context, logger *slog.Logger, httpServer ports.HTTPServer, worker ports.Worker) error {
+func runComponents(ctx context.Context, logger *slog.Logger, httpServer healthplatform.HTTPServer, worker workeradapter.Worker) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

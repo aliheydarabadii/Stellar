@@ -1,14 +1,15 @@
-package main
+package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/caarlos0/env/v11"
-	"stellar/internal/telemetry/adapters/influxdb"
-	"stellar/internal/telemetry/adapters/modbus"
+	tracingplatform "stellar/internal/platform/tracing"
+	influxdbadapter "stellar/internal/telemetry/adapters/outbound/influxdb"
+	modbusadapter "stellar/internal/telemetry/adapters/outbound/modbus"
 	"stellar/internal/telemetry/domain"
-	"stellar/internal/telemetry/ports"
 )
 
 const (
@@ -17,18 +18,20 @@ const (
 	readinessMultiplier   = 3
 )
 
-type config struct {
+type Config struct {
+	LogLevel            string
 	AssetID             domain.AssetID
 	AssetType           domain.AssetType
 	PollInterval        time.Duration
 	ReadinessStaleAfter time.Duration
 	HTTPPort            int
-	Modbus              modbus.Config
-	Influx              influxdb.Config
-	Tracing             ports.TracingConfig
+	Modbus              modbusadapter.Config
+	Influx              influxdbadapter.Config
+	Tracing             tracingplatform.TracingConfig
 }
 
 type envConfig struct {
+	LogLevel                 string        `env:"LOG_LEVEL" envDefault:"INFO"`
 	AssetID                  string        `env:"ASSET_ID,required,notEmpty"`
 	AssetType                string        `env:"ASSET_TYPE,required,notEmpty"`
 	ModbusHost               string        `env:"MODBUS_HOST,required,notEmpty"`
@@ -54,27 +57,27 @@ type envConfig struct {
 	TracingSampleRatio       float64       `env:"TRACING_SAMPLE_RATIO" envDefault:"1.0"`
 }
 
-func loadConfig() (config, error) {
-	var raw envConfig
-	if err := env.Parse(&raw); err != nil {
-		return config{}, fmt.Errorf("parse environment: %w", err)
+func Load() (Config, error) {
+	raw, err := env.ParseAs[envConfig]()
+	if err != nil {
+		return Config{}, translateConfigParseError(err)
 	}
 
 	if raw.PollInterval <= 0 {
-		return config{}, fmt.Errorf("POLL_INTERVAL must be greater than zero")
+		return Config{}, errors.New("POLL_INTERVAL must be greater than zero")
 	}
 
 	if raw.HTTPPort <= 0 || raw.HTTPPort > 65535 {
-		return config{}, fmt.Errorf("HTTP_PORT must be between 1 and 65535")
+		return Config{}, errors.New("HTTP_PORT must be between 1 and 65535")
 	}
 
 	if raw.InfluxFlushInterval < 0 {
-		return config{}, fmt.Errorf("INFLUX_FLUSH_INTERVAL must not be negative")
+		return Config{}, errors.New("INFLUX_FLUSH_INTERVAL must not be negative")
 	}
 
 	influxWriteMode, err := parseInfluxWriteMode(raw.InfluxWriteMode)
 	if err != nil {
-		return config{}, err
+		return Config{}, err
 	}
 
 	registerMapping, err := domain.NewRegisterMapping(
@@ -84,22 +87,23 @@ func loadConfig() (config, error) {
 		raw.ModbusSignedValues,
 	)
 	if err != nil {
-		return config{}, fmt.Errorf("build register mapping: %w", err)
+		return Config{}, fmt.Errorf("build register mapping: %w", err)
 	}
 
-	return config{
+	return Config{
+		LogLevel:            raw.LogLevel,
 		AssetID:             domain.AssetID(raw.AssetID),
 		AssetType:           domain.AssetType(raw.AssetType),
 		PollInterval:        raw.PollInterval,
 		ReadinessStaleAfter: readinessStaleness(raw.PollInterval),
 		HTTPPort:            raw.HTTPPort,
-		Modbus: modbus.Config{
+		Modbus: modbusadapter.Config{
 			Host:            raw.ModbusHost,
 			Port:            raw.ModbusPort,
 			UnitID:          raw.ModbusUnitID,
 			RegisterMapping: registerMapping,
 		},
-		Influx: influxdb.Config{
+		Influx: influxdbadapter.Config{
 			BaseURL:       raw.InfluxURL,
 			Org:           raw.InfluxOrg,
 			Bucket:        raw.InfluxBucket,
@@ -110,7 +114,7 @@ func loadConfig() (config, error) {
 			BatchSize:     raw.InfluxBatchSize,
 			FlushInterval: raw.InfluxFlushInterval,
 		},
-		Tracing: ports.TracingConfig{
+		Tracing: tracingplatform.TracingConfig{
 			Enabled:     raw.TracingEnabled,
 			Endpoint:    raw.TracingEndpoint,
 			Insecure:    raw.TracingInsecure,
@@ -119,13 +123,13 @@ func loadConfig() (config, error) {
 	}, nil
 }
 
-func parseInfluxWriteMode(value string) (influxdb.WriteMode, error) {
-	mode := influxdb.WriteMode(value)
+func parseInfluxWriteMode(value string) (influxdbadapter.WriteMode, error) {
+	mode := influxdbadapter.WriteMode(value)
 	switch mode {
-	case influxdb.WriteModeBlocking, influxdb.WriteModeBatch:
+	case influxdbadapter.WriteModeBlocking, influxdbadapter.WriteModeBatch:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("INFLUX_WRITE_MODE must be one of %q or %q", influxdb.WriteModeBlocking, influxdb.WriteModeBatch)
+		return "", fmt.Errorf("INFLUX_WRITE_MODE must be one of %q or %q", influxdbadapter.WriteModeBlocking, influxdbadapter.WriteModeBatch)
 	}
 }
 
@@ -136,4 +140,68 @@ func readinessStaleness(pollInterval time.Duration) time.Duration {
 	}
 
 	return staleness
+}
+
+func translateConfigParseError(err error) error {
+	var parseErr env.ParseError
+	if errors.As(err, &parseErr) {
+		return fmt.Errorf("parse %s: %w", configFieldEnvName(parseErr.Name), parseErr.Err)
+	}
+
+	return err
+}
+
+func configFieldEnvName(fieldName string) string {
+	switch fieldName {
+	case "LogLevel":
+		return "LOG_LEVEL"
+	case "AssetID":
+		return "ASSET_ID"
+	case "AssetType":
+		return "ASSET_TYPE"
+	case "ModbusHost":
+		return "MODBUS_HOST"
+	case "ModbusPort":
+		return "MODBUS_PORT"
+	case "ModbusUnitID":
+		return "MODBUS_UNIT_ID"
+	case "ModbusRegisterType":
+		return "MODBUS_REGISTER_TYPE"
+	case "ModbusSetpointAddress":
+		return "MODBUS_SETPOINT_ADDRESS"
+	case "ModbusActivePowerAddress":
+		return "MODBUS_ACTIVE_POWER_ADDRESS"
+	case "ModbusSignedValues":
+		return "MODBUS_SIGNED_VALUES"
+	case "PollInterval":
+		return "POLL_INTERVAL"
+	case "HTTPPort":
+		return "HTTP_PORT"
+	case "InfluxURL":
+		return "INFLUX_URL"
+	case "InfluxToken":
+		return "INFLUX_TOKEN"
+	case "InfluxOrg":
+		return "INFLUX_ORG"
+	case "InfluxBucket":
+		return "INFLUX_BUCKET"
+	case "InfluxWriteMode":
+		return "INFLUX_WRITE_MODE"
+	case "InfluxBatchSize":
+		return "INFLUX_BATCH_SIZE"
+	case "InfluxLogLevel":
+		return "INFLUX_LOG_LEVEL"
+	case "InfluxFlushInterval":
+		return "INFLUX_FLUSH_INTERVAL"
+	case "TracingEnabled":
+		return "TRACING_ENABLED"
+	case "TracingEndpoint":
+		return "TRACING_ENDPOINT"
+	case "TracingInsecure":
+		return "TRACING_INSECURE"
+	case "TracingSampleRatio":
+		return "TRACING_SAMPLE_RATIO"
+	default:
+		return fieldName
+	}
 }

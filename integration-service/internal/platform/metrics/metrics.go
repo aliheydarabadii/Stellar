@@ -1,4 +1,4 @@
-package ports
+package metrics
 
 import (
 	"net/http"

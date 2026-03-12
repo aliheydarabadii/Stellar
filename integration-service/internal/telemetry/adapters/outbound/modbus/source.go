@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"stellar/internal/telemetry/app/command"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 	"stellar/internal/telemetry/domain"
 )
 
@@ -101,28 +101,28 @@ func validateConfig(config Config) error {
 	return nil
 }
 
-func (s *Source) Read(ctx context.Context) (command.TelemetryReading, error) {
+func (s *Source) Read(ctx context.Context) (collecttelemetry.TelemetryReading, error) {
 	plan, err := s.mapper.Map(s.config.RegisterMapping)
 	if err != nil {
-		return command.TelemetryReading{}, err
+		return collecttelemetry.TelemetryReading{}, err
 	}
 
 	conn, err := s.dialContext(ctx, "tcp", net.JoinHostPort(s.config.Host, strconv.Itoa(int(s.config.Port))))
 	if err != nil {
-		return command.TelemetryReading{}, fmt.Errorf("dial modbus source: %w", err)
+		return collecttelemetry.TelemetryReading{}, fmt.Errorf("dial modbus source: %w", err)
 	}
 	defer conn.Close()
 
 	if err := conn.SetDeadline(deadlineFromContext(ctx, defaultIOTimeout)); err != nil {
-		return command.TelemetryReading{}, fmt.Errorf("set modbus deadline: %w", err)
+		return collecttelemetry.TelemetryReading{}, fmt.Errorf("set modbus deadline: %w", err)
 	}
 
 	registers, err := s.readHoldingRegisters(conn, plan)
 	if err != nil {
-		return command.TelemetryReading{}, err
+		return collecttelemetry.TelemetryReading{}, err
 	}
 
-	return command.TelemetryReading{
+	return collecttelemetry.TelemetryReading{
 		Setpoint:    s.decoder.DecodeRegister(registers[plan.setpointIndex], plan.signedValues),
 		ActivePower: s.decoder.DecodeRegister(registers[plan.activePowerIndex], plan.signedValues),
 	}, nil
@@ -236,4 +236,4 @@ func writeAll(w io.Writer, data []byte) error {
 	return nil
 }
 
-var _ command.TelemetrySource = (*Source)(nil)
+var _ collecttelemetry.TelemetrySource = (*Source)(nil)

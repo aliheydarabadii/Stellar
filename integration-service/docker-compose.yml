@@ -9,6 +9,7 @@ services:
       modbus-server:
         condition: service_healthy
     environment:
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       ASSET_ID: "871689260010377213"
       ASSET_TYPE: "solar_panel"
       MODBUS_HOST: "modbus-server"

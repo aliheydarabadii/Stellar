@@ -10,6 +10,7 @@ import (
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/influxdata/influxdb-client-go/v2/api/write"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 	"stellar/internal/telemetry/domain"
 )
 
@@ -133,6 +134,8 @@ func (r *MeasurementRepository) Close() error {
 
 	return r.closeErr
 }
+
+var _ collecttelemetry.MeasurementRepository = (*MeasurementRepository)(nil)
 
 func validateConfig(config Config) error {
 	switch {

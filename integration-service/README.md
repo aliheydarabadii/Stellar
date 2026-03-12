@@ -1,32 +1,28 @@
 # Integration Service
 
-The Integration Service is the command-side telemetry ingester for the backend system.
+The Integration Service is the command-side telemetry ingester for the system.
 
-It polls Modbus TCP registers, converts raw values into telemetry readings, validates domain measurements, and writes valid measurements to InfluxDB.
-
-## Purpose
-
-- collect telemetry for a configured asset
-- validate telemetry using domain rules before persistence
-- persist valid measurements to InfluxDB
-- expose minimal health and readiness endpoints for runtime supervision
-- expose Prometheus metrics for service monitoring
-- export OpenTelemetry traces for collection, source, and persistence spans
+It polls Modbus TCP registers, converts raw values into telemetry readings, validates them against domain rules, and persists valid measurements to InfluxDB. It also exposes operational health/readiness endpoints, Prometheus metrics, and OpenTelemetry traces.
 
 ## Architecture
 
-This service follows a lightweight DDD + CQRS + Clean Architecture style:
+This service is intentionally lightweight:
 
-- `domain`: business concepts and validation rules
-- `app`: command-side orchestration
-- `adapters`: infrastructure implementations for Modbus and InfluxDB
-- `ports`: runtime concerns such as worker execution and HTTP endpoints
-- `cmd/integration-service`: bootstrap and wiring
+- command-side CQRS only
+- clean-architecture / hexagonal-friendly package boundaries
+- pragmatic, lightweight DDD rather than heavy domain modeling
 
-CQRS note:
+The ownership model is:
 
-- this service is command-side only
-- there are no query handlers or read-side endpoints in this service
+- `domain`: telemetry concepts and validation rules
+- `application/collect_telemetry`: command use case and application-owned ports
+- `adapters/inbound/worker`: the polling loop that triggers collection
+- `adapters/outbound/modbus`: Modbus TCP telemetry source
+- `adapters/outbound/influxdb`: InfluxDB measurement repository
+- `platform`: operational concerns such as config, logging, health, metrics, and tracing
+- `cmd/integration-service`: composition root and process bootstrap
+
+This service does not expose query endpoints and does not own the API Gateway freshness cache.
 
 ## Package Structure
 
@@ -37,53 +33,62 @@ cmd/
 
 internal/
   telemetry/
-    app/
-      app.go
-      command/
-        collect_telemetry.go
-
     domain/
       asset.go
       register_mapping.go
       measurement.go
       errors.go
 
-    ports/
-      worker.go
-      http.go
+    application/
+      collect_telemetry/
+        command.go
+        usecase.go
+        ports.go
+        errors.go
 
     adapters/
-      modbus/
-        source.go
-        decoder.go
-        address_mapper.go
-      influxdb/
-        measurement_repository.go
-        point_mapper.go
+      inbound/
+        worker/
+          runner.go
+      outbound/
+        modbus/
+          source.go
+          decoder.go
+          address_mapper.go
+        influxdb/
+          measurement_repository.go
+          point_mapper.go
+
+  platform/
+    config/
+      config.go
+    logging/
+      logger.go
+    health/
+      handler.go
+      readiness.go
+    metrics/
+      metrics.go
+      instrumentation.go
+    tracing/
+      tracing.go
 ```
 
 ## Runtime Flow
 
-1. A ticker triggers telemetry collection on the configured poll interval.
-2. The worker builds `CollectTelemetry{CollectedAt: time.Now().UTC()}`.
-3. The command handler reads raw telemetry from the Modbus adapter.
-4. The application constructs a domain `Measurement`.
+1. The worker wakes up on the configured poll interval.
+2. It creates `CollectTelemetry{CollectedAt: time.Now().UTC()}`.
+3. The application use case asks the Modbus source for raw telemetry.
+4. The application builds a domain `Measurement`.
 5. Invalid measurements are rejected and skipped.
-6. Valid measurements are persisted through the InfluxDB adapter.
-
-## Assumptions
-
-- time is passed through the command via `CollectedAt`
-- register mapping is configuration-driven
-- invalid measurements are skipped and not persisted
-- the default Modbus mapping uses holding registers `40100` and `40101`
-- when `signed_values=true`, Modbus registers are decoded as signed 16-bit integers
+6. Valid measurements are written to InfluxDB.
+7. Metrics, readiness, and traces are emitted around the collection path.
 
 ## Configuration
 
-The service loads configuration from environment variables.
+The service reads configuration from environment variables.
 
-Required variables:
+Required:
 
 ```text
 ASSET_ID
@@ -103,27 +108,31 @@ INFLUX_BUCKET
 HTTP_PORT
 ```
 
-Optional Influx write tuning:
+Optional:
 
 ```text
+LOG_LEVEL
 INFLUX_LOG_LEVEL
 INFLUX_WRITE_MODE
 INFLUX_BATCH_SIZE
 INFLUX_FLUSH_INTERVAL
-```
-
-Optional tracing configuration:
-
-```text
 TRACING_ENABLED
 TRACING_ENDPOINT
 TRACING_INSECURE
 TRACING_SAMPLE_RATIO
 ```
 
+Notes:
+
+- `LOG_LEVEL` defaults to `INFO`
+- `INFLUX_WRITE_MODE` supports `blocking` and `batch`
+- `INFLUX_LOG_LEVEL` maps directly to the InfluxDB Go client log level (`uint`)
+- readiness becomes unhealthy if successful collections go stale beyond the derived readiness window
+
 Example:
 
 ```bash
+export LOG_LEVEL=INFO
 export ASSET_ID=871689260010377213
 export ASSET_TYPE=solar_panel
 export MODBUS_HOST=127.0.0.1
@@ -147,29 +156,13 @@ export TRACING_SAMPLE_RATIO=1.0
 export HTTP_PORT=8080
 ```
 
-Influx write modes:
-
-- `blocking`: write each point synchronously
-- `batch`: group concurrent writes and flush them in batches before `Save(...)` returns
-
-`INFLUX_LOG_LEVEL` maps directly to the InfluxDB Go client log level (`uint`).
-
-When `INFLUX_WRITE_MODE=batch`, you can also set:
-
-- `INFLUX_BATCH_SIZE`
-- `INFLUX_FLUSH_INTERVAL`
-
-Batch mode keeps repository success semantics honest: a `Save(...)` call returns only after the batch containing the point has been written successfully or failed. The tradeoff is added latency up to the configured flush interval.
-
-Tracing is exported over OTLP/HTTP when `TRACING_ENABLED=true`.
-
 ## Run
 
 ```bash
 go run ./cmd/integration-service
 ```
 
-Or with the provided Make target:
+Or:
 
 ```bash
 make run-local
@@ -184,18 +177,10 @@ Endpoints:
 Readiness behavior:
 
 - `/healthz` reports that the process is running
-- `/readyz` becomes healthy only after the service has completed at least one successful end-to-end collection and persistence cycle
-- `/readyz` turns unhealthy again during shutdown or if successful collections go stale beyond the readiness window derived from the poll interval
+- `/readyz` becomes healthy only after at least one successful end-to-end collection and persistence cycle
+- `/readyz` turns unhealthy during shutdown or after the success window goes stale
 
-`/metrics` is exposed with the official Prometheus Go client and includes both service telemetry counters and standard Go/process collectors.
-
-Telemetry histograms exposed for percentile dashboards:
-
-- `integration_service_telemetry_collection_duration_seconds`
-- `integration_service_telemetry_source_read_duration_seconds`
-- `integration_service_telemetry_persistence_duration_seconds`
-
-Trace spans emitted by the worker pipeline:
+Trace spans emitted by the collection path:
 
 - `telemetry.collect`
 - `telemetry.source.read`
@@ -203,7 +188,7 @@ Trace spans emitted by the worker pipeline:
 
 ## Docker Compose
 
-To run the Integration Service with InfluxDB and the `oitc/modbus-server:latest` Modbus server image:
+Run the full local stack with:
 
 ```bash
 docker compose up --build
@@ -215,22 +200,12 @@ Or:
 make compose-up
 ```
 
-Services started by the compose stack:
+Services started:
 
 - `integration-service`
 - `influxdb`
 - `modbus-server`
 - `prometheus`
-
-The compose stack uses `oitc/modbus-server:latest` with a mounted config file at [docker/modbus/server_config.json](/Users/aliheydarabadii/Desktop/interview/Stellar/docker/modbus/server_config.json), including the holding register values for `40100` and `40101`.
-
-The equivalent standalone Modbus server command is:
-
-```bash
-docker run --rm -p 5020:5020 \
-  -v ./docker/modbus/server_config.json:/server_config.json:ro \
-  oitc/modbus-server:latest -f /server_config.json
-```
 
 Exposed ports:
 
@@ -239,44 +214,29 @@ Exposed ports:
 - `5020`: Modbus server
 - `9090`: Prometheus UI
 
-Prometheus scrapes the Integration Service from `integration-service:8080/metrics`.
-
-Example PromQL for p95 collection latency:
-
-```promql
-histogram_quantile(
-  0.95,
-  sum(rate(integration_service_telemetry_collection_duration_seconds_bucket[5m])) by (le)
-)
-```
+The compose stack uses the mounted Modbus config at `docker/modbus/server_config.json`.
 
 ## Testing
 
-Run the full automated test suite with:
+Run the Go test suite with:
 
 ```bash
 go test ./...
 ```
 
-The test suite covers domain validation, application command orchestration, Modbus adapter behavior, InfluxDB point mapping/repository behavior, and worker loop behavior.
+The test suite covers domain validation, application orchestration, Modbus decoding/source behavior, InfluxDB repository behavior, health/readiness handling, metrics instrumentation, and the worker loop.
 
 ## Load Testing
 
-This service does not expose a public telemetry ingestion endpoint. The worker drives collection internally, so the provided k6 scripts cover:
+The service does not expose a public ingestion API, so the provided k6 scripts cover:
 
-- HTTP surface load for `/healthz` and `/readyz`
+- `/healthz` and `/readyz` HTTP surface load
 - direct InfluxDB write load for repository throughput experiments
 
 Run the HTTP load test:
 
 ```bash
 k6 run loadtest/k6/service-http.js
-```
-
-Or:
-
-```bash
-make load-http
 ```
 
 Run the Influx write load test:
@@ -288,18 +248,3 @@ INFLUX_BUCKET=telemetry \
 INFLUX_TOKEN=dev-token \
 k6 run loadtest/k6/influx-write.js
 ```
-
-Or:
-
-```bash
-make load-influx
-```
-
-Useful overrides:
-
-- `BASE_URL`
-- `VUS`
-- `DURATION`
-- `SLEEP_SECONDS`
-- `SETPOINT`
-- `ACTIVE_POWER`

@@ -1,4 +1,4 @@
-package ports
+package health
 
 import (
 	"io"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	metricsplatform "stellar/internal/platform/metrics"
 )
 
 type HTTPServerTestSuite struct {
@@ -26,7 +27,7 @@ func (s *HTTPServerTestSuite) SetupTest() {
 }
 
 func (s *HTTPServerTestSuite) TestServerExposesMetricsEndpoint() {
-	metrics := NewMetrics()
+	metrics := metricsplatform.NewMetrics()
 	readiness, err := NewReadiness(time.Minute)
 	s.Require().NoError(err)
 
@@ -39,7 +40,7 @@ func (s *HTTPServerTestSuite) TestServerExposesMetricsEndpoint() {
 	metrics.RecordSourceFailure()
 	metrics.RecordPersistenceFailure()
 
-	server, err := NewHTTPServer(":8080", s.logger, metrics, readiness)
+	server, err := NewServer(":8080", s.logger, metrics, readiness)
 	s.Require().NoError(err)
 
 	recorder := httptest.NewRecorder()
@@ -69,7 +70,7 @@ func (s *HTTPServerTestSuite) TestServerReadyzRequiresRecentSuccessfulCollection
 	readiness, err := NewReadiness(time.Minute)
 	s.Require().NoError(err)
 
-	server, err := NewHTTPServer(":8080", s.logger, NewMetrics(), readiness)
+	server, err := NewServer(":8080", s.logger, metricsplatform.NewMetrics(), readiness)
 	s.Require().NoError(err)
 
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
@@ -90,7 +91,7 @@ func (s *HTTPServerTestSuite) TestServerReadyzFailsWhenSuccessIsStale() {
 	s.Require().NoError(err)
 	readiness.MarkSuccess(time.Now().UTC().Add(-time.Second))
 
-	server, err := NewHTTPServer(":8080", s.logger, NewMetrics(), readiness)
+	server, err := NewServer(":8080", s.logger, metricsplatform.NewMetrics(), readiness)
 	s.Require().NoError(err)
 
 	recorder := httptest.NewRecorder()

@@ -1,15 +1,16 @@
-package ports
+package metrics
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/suite"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	"stellar/internal/telemetry/app/command"
+	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
 	"stellar/internal/telemetry/domain"
 )
 
@@ -31,7 +32,7 @@ func (s *InstrumentationTestSuite) SetupTest() {
 
 func (s *InstrumentationTestSuite) TestInstrumentTelemetrySourceObservesReadDuration() {
 	source := InstrumentTelemetrySource(stubTelemetrySource{
-		reading: command.TelemetryReading{
+		reading: collecttelemetry.TelemetryReading{
 			Setpoint:    100,
 			ActivePower: 50,
 		},
@@ -62,11 +63,11 @@ func (s *InstrumentationTestSuite) TestInstrumentMeasurementRepositoryObservesPe
 }
 
 type stubTelemetrySource struct {
-	reading command.TelemetryReading
+	reading collecttelemetry.TelemetryReading
 	err     error
 }
 
-func (s stubTelemetrySource) Read(_ context.Context) (command.TelemetryReading, error) {
+func (s stubTelemetrySource) Read(_ context.Context) (collecttelemetry.TelemetryReading, error) {
 	return s.reading, s.err
 }
 
@@ -84,4 +85,20 @@ func newTestTracer() (trace.Tracer, *tracetest.SpanRecorder) {
 	provider.RegisterSpanProcessor(recorder)
 
 	return provider.Tracer("test"), recorder
+}
+
+func histogramSampleCount(t *testing.T, histogram interface{}) uint64 {
+	t.Helper()
+
+	metricWriter, ok := histogram.(interface{ Write(*dto.Metric) error })
+	if !ok {
+		t.Fatal("expected histogram to implement Write")
+	}
+
+	metric := &dto.Metric{}
+	if err := metricWriter.Write(metric); err != nil {
+		t.Fatalf("expected histogram metric to be writable, got %v", err)
+	}
+
+	return metric.GetHistogram().GetSampleCount()
 }
