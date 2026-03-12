@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"api_gateway/internal/platform/requestctx"
+	"github.com/gin-gonic/gin"
 )
 
 func withAccessLogging(next stdhttp.Handler, logger *slog.Logger) stdhttp.Handler {
@@ -19,7 +20,10 @@ func withAccessLogging(next stdhttp.Handler, logger *slog.Logger) stdhttp.Handle
 
 		next.ServeHTTP(recorder, r)
 
-		route := r.Pattern
+		route := requestctx.RouteFromContext(r.Context())
+		if route == "" {
+			route = r.Pattern
+		}
 		if route == "" {
 			route = r.URL.Path
 		}
@@ -40,6 +44,16 @@ func withAccessLogging(next stdhttp.Handler, logger *slog.Logger) stdhttp.Handle
 			"cache_status", cacheStatus,
 		)
 	})
+}
+
+func withRouteMetadata() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+
+		if route := c.FullPath(); route != "" {
+			requestctx.SetRoute(c.Request.Context(), route)
+		}
+	}
 }
 
 func withRequestMetadata(next stdhttp.Handler) stdhttp.Handler {

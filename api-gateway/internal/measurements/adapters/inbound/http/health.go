@@ -5,22 +5,24 @@ import (
 	"fmt"
 	stdhttp "net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type ReadinessProbe func(context.Context) error
 
 func NewHealthHandler(readinessProbe ReadinessProbe, readinessTimeout time.Duration) stdhttp.Handler {
-	mux := stdhttp.NewServeMux()
-	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
-		writeHealthResponse(w, stdhttp.StatusOK)
+	engine := gin.New()
+	engine.GET("/healthz", func(c *gin.Context) {
+		writeHealthResponse(c.Writer, stdhttp.StatusOK)
 	})
-	mux.HandleFunc("/readyz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	engine.GET("/readyz", func(c *gin.Context) {
 		if readinessProbe == nil {
-			writeHealthResponse(w, stdhttp.StatusOK)
+			writeHealthResponse(c.Writer, stdhttp.StatusOK)
 			return
 		}
 
-		ctx := r.Context()
+		ctx := c.Request.Context()
 		if readinessTimeout > 0 {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, readinessTimeout)
@@ -28,14 +30,14 @@ func NewHealthHandler(readinessProbe ReadinessProbe, readinessTimeout time.Durat
 		}
 
 		if err := readinessProbe(ctx); err != nil {
-			writeHealthResponse(w, stdhttp.StatusServiceUnavailable)
+			writeHealthResponse(c.Writer, stdhttp.StatusServiceUnavailable)
 			return
 		}
 
-		writeHealthResponse(w, stdhttp.StatusOK)
+		writeHealthResponse(c.Writer, stdhttp.StatusOK)
 	})
 
-	return mux
+	return engine
 }
 
 func writeHealthResponse(w stdhttp.ResponseWriter, status int) {

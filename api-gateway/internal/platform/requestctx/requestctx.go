@@ -31,6 +31,7 @@ type requestState struct {
 	requestID     string
 	correlationID string
 	cacheStatus   string
+	route         string
 }
 
 func Normalize(requestID, correlationID string) (string, string) {
@@ -90,6 +91,20 @@ func SetCacheStatus(ctx context.Context, cacheStatus string) {
 func CacheStatusFromContext(ctx context.Context) string {
 	if state := stateFromContext(ctx); state != nil {
 		return state.cacheStatus
+	}
+
+	return ""
+}
+
+func SetRoute(ctx context.Context, route string) {
+	if state := stateFromContext(ctx); state != nil {
+		state.route = route
+	}
+}
+
+func RouteFromContext(ctx context.Context) string {
+	if state := stateFromContext(ctx); state != nil {
+		return state.route
 	}
 
 	return ""

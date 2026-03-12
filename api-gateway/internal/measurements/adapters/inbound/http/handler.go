@@ -6,10 +6,12 @@ import (
 	"errors"
 	"log/slog"
 	stdhttp "net/http"
+	"net/url"
 	"time"
 
 	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
 	"api_gateway/internal/platform/requestctx"
+	"github.com/gin-gonic/gin"
 )
 
 type errorResponse struct {
@@ -17,34 +19,35 @@ type errorResponse struct {
 }
 
 func NewHandler(queryHandler getmeasurements.QueryHandler, logger *slog.Logger, requestTimeout time.Duration) stdhttp.Handler {
-	mux := stdhttp.NewServeMux()
-	mux.HandleFunc("GET /assets/{asset_id}/measurements", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		ctx := r.Context()
+	engine := gin.New()
+	engine.Use(withRouteMetadata())
+	engine.GET("/assets/:asset_id/measurements", func(c *gin.Context) {
+		ctx := c.Request.Context()
 		if requestTimeout > 0 {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, requestTimeout)
 			defer cancel()
 		}
 
-		from, err := parseTimeParam(r, "from")
+		from, err := parseTimeParam(c.Query("from"), "from")
 		if err != nil {
-			writeJSON(w, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
+			writeJSON(c.Writer, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
 			return
 		}
 
-		to, err := parseTimeParam(r, "to")
+		to, err := parseTimeParam(c.Query("to"), "to")
 		if err != nil {
-			writeJSON(w, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
+			writeJSON(c.Writer, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
 			return
 		}
 
 		series, err := queryHandler.Handle(ctx, getmeasurements.Query{
-			AssetID: r.PathValue("asset_id"),
+			AssetID: decodePathParam(c.Param("asset_id")),
 			From:    from,
 			To:      to,
 		})
 		if err != nil {
-			writeQueryError(w, r.WithContext(ctx), logger, err)
+			writeQueryError(c.Writer, c.Request.WithContext(ctx), logger, err)
 			return
 		}
 
@@ -52,17 +55,16 @@ func NewHandler(queryHandler getmeasurements.QueryHandler, logger *slog.Logger, 
 			requestctx.SetCacheStatus(ctx, requestctx.CacheStatusNotApplicable)
 		}
 
-		writeJSON(w, stdhttp.StatusOK, series)
+		writeJSON(c.Writer, stdhttp.StatusOK, series)
 	})
 
-	handler := stdhttp.Handler(mux)
+	handler := stdhttp.Handler(engine)
 	handler = withAccessLogging(handler, logger)
 	handler = withRequestMetadata(handler)
 	return handler
 }
 
-func parseTimeParam(r *stdhttp.Request, name string) (time.Time, error) {
-	value := r.URL.Query().Get(name)
+func parseTimeParam(value, name string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, errors.New(name + " is required")
 	}
@@ -73,6 +75,15 @@ func parseTimeParam(r *stdhttp.Request, name string) (time.Time, error) {
 	}
 
 	return parsed.UTC(), nil
+}
+
+func decodePathParam(value string) string {
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		return value
+	}
+
+	return decoded
 }
 
 func writeQueryError(w stdhttp.ResponseWriter, r *stdhttp.Request, logger *slog.Logger, err error) {
