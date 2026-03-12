@@ -8,7 +8,7 @@ test:
 	GOCACHE=$(GOCACHE) $(GO) test ./...
 
 test-integration:
-	GOCACHE=$(GOCACHE) $(GO) test -tags=integration ./internal/measurements/adapters/influxdb ./internal/measurements/ports
+	GOCACHE=$(GOCACHE) $(GO) test -tags=integration ./internal/measurements/adapters/outbound/influxdb ./internal/measurements/adapters/inbound/grpc
 
 proto:
 	PATH="$(shell $(GO) env GOPATH)/bin:$(PATH)" $(PROTOC) \

@@ -1,4 +1,4 @@
-package query
+package getmeasurements
 
 import (
 	"context"
@@ -7,36 +7,38 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+
+	"stellar/internal/measurements/domain"
 )
 
-type GetMeasurementsHandlerSuite struct {
+type UseCaseSuite struct {
 	suite.Suite
 }
 
-func TestGetMeasurementsHandlerSuite(t *testing.T) {
-	suite.Run(t, new(GetMeasurementsHandlerSuite))
+func TestUseCaseSuite(t *testing.T) {
+	suite.Run(t, new(UseCaseSuite))
 }
 
-func (s *GetMeasurementsHandlerSuite) TestNewRejectsNilReadModel() {
-	_, err := NewGetMeasurementsHandler(nil)
+func (s *UseCaseSuite) TestNewRejectsNilReadModel() {
+	_, err := NewUseCase(nil)
 
 	s.ErrorIs(err, ErrReadModelUnavailable)
 }
 
-func (s *GetMeasurementsHandlerSuite) TestHandleRejectsInvalidInput() {
-	handler, err := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{})
+func (s *UseCaseSuite) TestHandleRejectsInvalidInput() {
+	useCase, err := NewUseCase(&fakeMeasurementsReadModel{})
 	s.Require().NoError(err)
 
 	now := time.Now().UTC()
 
 	testCases := []struct {
 		name  string
-		query GetMeasurements
+		query Query
 		want  error
 	}{
 		{
 			name: "empty asset id",
-			query: GetMeasurements{
+			query: Query{
 				AssetID: "",
 				From:    now,
 				To:      now,
@@ -45,7 +47,7 @@ func (s *GetMeasurementsHandlerSuite) TestHandleRejectsInvalidInput() {
 		},
 		{
 			name: "from after to",
-			query: GetMeasurements{
+			query: Query{
 				AssetID: "asset-1",
 				From:    now.Add(time.Second),
 				To:      now,
@@ -54,7 +56,7 @@ func (s *GetMeasurementsHandlerSuite) TestHandleRejectsInvalidInput() {
 		},
 		{
 			name: "zero timestamps",
-			query: GetMeasurements{
+			query: Query{
 				AssetID: "asset-1",
 			},
 			want: ErrTimestampZero,
@@ -64,21 +66,21 @@ func (s *GetMeasurementsHandlerSuite) TestHandleRejectsInvalidInput() {
 	for _, tc := range testCases {
 		tc := tc
 		s.Run(tc.name, func() {
-			_, err := handler.Handle(context.Background(), tc.query)
+			_, err := useCase.Handle(context.Background(), tc.query)
 			s.ErrorIs(err, tc.want)
 		})
 	}
 }
 
-func (s *GetMeasurementsHandlerSuite) TestHandleRejectsRangeLargerThanConfiguredLimit() {
-	handler, err := NewGetMeasurementsHandlerWithConfig(&fakeMeasurementsReadModel{}, HandlerConfig{
+func (s *UseCaseSuite) TestHandleRejectsRangeLargerThanConfiguredLimit() {
+	useCase, err := NewUseCaseWithConfig(&fakeMeasurementsReadModel{}, Config{
 		MaxQueryRange: 5 * time.Minute,
 	})
 	s.Require().NoError(err)
 
 	now := time.Now().UTC().Truncate(time.Second)
 
-	_, err = handler.Handle(context.Background(), GetMeasurements{
+	_, err = useCase.Handle(context.Background(), Query{
 		AssetID: "asset-1",
 		From:    now,
 		To:      now.Add(5*time.Minute + time.Second),
@@ -87,16 +89,16 @@ func (s *GetMeasurementsHandlerSuite) TestHandleRejectsRangeLargerThanConfigured
 	s.ErrorIs(err, ErrQueryRangeTooLarge)
 }
 
-func (s *GetMeasurementsHandlerSuite) TestHandleAllowsRangeAtConfiguredLimit() {
+func (s *UseCaseSuite) TestHandleAllowsRangeAtConfiguredLimit() {
 	readModel := &fakeMeasurementsReadModel{}
-	handler, err := NewGetMeasurementsHandlerWithConfig(readModel, HandlerConfig{
+	useCase, err := NewUseCaseWithConfig(readModel, Config{
 		MaxQueryRange: 5 * time.Minute,
 	})
 	s.Require().NoError(err)
 
 	now := time.Now().UTC().Truncate(time.Second)
 
-	_, err = handler.Handle(context.Background(), GetMeasurements{
+	_, err = useCase.Handle(context.Background(), Query{
 		AssetID: "asset-1",
 		From:    now,
 		To:      now.Add(5 * time.Minute),
@@ -105,10 +107,10 @@ func (s *GetMeasurementsHandlerSuite) TestHandleAllowsRangeAtConfiguredLimit() {
 	s.NoError(err)
 }
 
-func (s *GetMeasurementsHandlerSuite) TestHandleReturnsPoints() {
+func (s *UseCaseSuite) TestHandleReturnsPoints() {
 	now := time.Now().UTC().Truncate(time.Second)
 	readModel := &fakeMeasurementsReadModel{
-		points: []MeasurementPoint{
+		points: []domain.MeasurementPoint{
 			{
 				Timestamp:   now,
 				Setpoint:    10,
@@ -117,10 +119,10 @@ func (s *GetMeasurementsHandlerSuite) TestHandleReturnsPoints() {
 		},
 	}
 
-	handler, err := NewGetMeasurementsHandler(readModel)
+	useCase, err := NewUseCase(readModel)
 	s.Require().NoError(err)
 
-	got, err := handler.Handle(context.Background(), GetMeasurements{
+	got, err := useCase.Handle(context.Background(), Query{
 		AssetID: " asset-1 ",
 		From:    now,
 		To:      now.Add(time.Second),
@@ -132,14 +134,14 @@ func (s *GetMeasurementsHandlerSuite) TestHandleReturnsPoints() {
 	s.Equal("asset-1", readModel.assetID)
 }
 
-func (s *GetMeasurementsHandlerSuite) TestHandleReturnsReadModelError() {
+func (s *UseCaseSuite) TestHandleReturnsReadModelError() {
 	wantErr := errors.New("read model failed")
 	now := time.Now().UTC()
 
-	handler, err := NewGetMeasurementsHandler(&fakeMeasurementsReadModel{err: wantErr})
+	useCase, err := NewUseCase(&fakeMeasurementsReadModel{err: wantErr})
 	s.Require().NoError(err)
 
-	_, err = handler.Handle(context.Background(), GetMeasurements{
+	_, err = useCase.Handle(context.Background(), Query{
 		AssetID: "asset-1",
 		From:    now,
 		To:      now,
@@ -152,11 +154,11 @@ type fakeMeasurementsReadModel struct {
 	assetID string
 	from    time.Time
 	to      time.Time
-	points  []MeasurementPoint
+	points  []domain.MeasurementPoint
 	err     error
 }
 
-func (f *fakeMeasurementsReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]MeasurementPoint, error) {
+func (f *fakeMeasurementsReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]domain.MeasurementPoint, error) {
 	f.assetID = assetID
 	f.from = from
 	f.to = to

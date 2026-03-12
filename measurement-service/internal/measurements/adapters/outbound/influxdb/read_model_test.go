@@ -8,7 +8,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"stellar/internal/measurements/app/query"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
+	"stellar/internal/measurements/domain"
 )
 
 type ReadModelSuite struct {
@@ -34,7 +35,7 @@ func (s *ReadModelSuite) TestGetMeasurementsMapsInfluxRows() {
 	got, err := model.GetMeasurements(context.Background(), "asset-1", base.Add(-time.Minute), base.Add(time.Minute))
 	s.Require().NoError(err)
 
-	want := []query.MeasurementPoint{
+	want := []domain.MeasurementPoint{
 		{
 			Timestamp:   base.Truncate(time.Second),
 			Setpoint:    10,
@@ -83,7 +84,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 	testCases := []struct {
 		name    string
 		records []influxRecord
-		want    []query.MeasurementPoint
+		want    []domain.MeasurementPoint
 	}{
 		{
 			name: "later complete point wins",
@@ -93,7 +94,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 13.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
 			},
-			want: []query.MeasurementPoint{
+			want: []domain.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    13.0,
@@ -108,7 +109,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 13.0},
 			},
-			want: []query.MeasurementPoint{
+			want: []domain.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    10.0,
@@ -124,7 +125,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 14.0},
 				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
 			},
-			want: []query.MeasurementPoint{
+			want: []domain.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    10.0,
@@ -138,7 +139,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
 			},
-			want: []query.MeasurementPoint{},
+			want: []domain.MeasurementPoint{},
 		},
 	}
 
@@ -188,7 +189,7 @@ func (s *ReadModelSuite) TestGetMeasurementsOpensCircuitAfterThreshold() {
 	}
 
 	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	s.ErrorIs(err, query.ErrReadModelUnavailable)
+	s.ErrorIs(err, getmeasurements.ErrReadModelUnavailable)
 	s.Equal(2, executor.calls)
 }
 
@@ -246,10 +247,10 @@ func (s *ReadModelSuite) TestGetMeasurementsTripsCircuitOnIteratorError() {
 	}
 
 	_, err := model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	s.ErrorIs(err, query.ErrReadModelUnavailable)
+	s.ErrorIs(err, getmeasurements.ErrReadModelUnavailable)
 
 	_, err = model.GetMeasurements(context.Background(), "asset-1", now.Add(-time.Minute), now)
-	s.ErrorIs(err, query.ErrReadModelUnavailable)
+	s.ErrorIs(err, getmeasurements.ErrReadModelUnavailable)
 }
 
 type fakeQueryExecutor struct {

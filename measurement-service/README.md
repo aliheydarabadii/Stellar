@@ -6,9 +6,12 @@ The Measurement Service is the query-side microservice for historical asset meas
 
 The service follows a pragmatic DDD-lite, CQRS, and Clean Architecture layout inspired by "Go with the Domain":
 
-- `internal/measurements/app`: thin application layer and query handlers
-- `internal/measurements/ports`: delivery adapters for gRPC and health endpoints
-- `internal/measurements/adapters/influxdb`: InfluxDB-backed read model adapter
+- `internal/measurements/domain`: measurement entities returned by the query side
+- `internal/measurements/application/get_measurements`: query DTO, ports, errors, and use case
+- `internal/measurements/adapters/inbound/grpc`: internal gRPC transport and mapping
+- `internal/measurements/adapters/outbound/influxdb`: InfluxDB-backed read model adapter
+- `internal/platform/health`: operational health endpoints
+- `internal/testsupport`: shared integration-test helpers
 - `api/proto`: gRPC contract
 - `cmd/measurement-service`: bootstrap and wiring
 
@@ -27,20 +30,34 @@ cmd/
 
 internal/
   measurements/
-    app/
-      app.go
-      query/
-        get_measurements.go
-        types.go
+    domain/
+      measurement.go
 
-    ports/
-      grpc.go
-      health.go
+    application/
+      get_measurements/
+        usecase.go
+        ports.go
+        query.go
+        errors.go
 
     adapters/
-      influxdb/
-        read_model.go
-        mapper.go
+      inbound/
+        grpc/
+          server.go
+          mapper.go
+
+      outbound/
+        influxdb/
+          read_model.go
+          mapper.go
+          circuit_breaker.go
+
+  platform/
+    health/
+      handler.go
+
+  testsupport/
+    influx_integration.go
 ```
 
 Generated protobuf stubs live alongside the proto source in `api/proto`.
@@ -127,7 +144,7 @@ go test ./...
 Run the Docker-backed integration tests against a real InfluxDB 2.x instance with:
 
 ```bash
-go test -tags=integration ./internal/measurements/adapters/influxdb ./internal/measurements/ports
+go test -tags=integration ./internal/measurements/adapters/outbound/influxdb ./internal/measurements/adapters/inbound/grpc
 ```
 
 Integration tests require Docker because they start a real InfluxDB 2.x container.

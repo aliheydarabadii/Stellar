@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"stellar/internal/measurements/app/query"
+	"stellar/internal/measurements/domain"
 )
 
 type exactTimestampBucket struct {
@@ -19,7 +19,7 @@ type secondBucket struct {
 	byTimestamp map[time.Time]*exactTimestampBucket
 }
 
-func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error) {
+func mapRecordsToPoints(records recordIterator) ([]domain.MeasurementPoint, error) {
 	grouped := make(map[time.Time]*secondBucket)
 
 	for records.Next() {
@@ -66,7 +66,7 @@ func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error
 		return seconds[i].Before(seconds[j])
 	})
 
-	points := make([]query.MeasurementPoint, 0, len(seconds))
+	points := make([]domain.MeasurementPoint, 0, len(seconds))
 	for _, second := range seconds {
 		point, ok := latestCompletePointWithinSecond(second, grouped[second])
 		if ok {
@@ -77,7 +77,7 @@ func mapRecordsToPoints(records recordIterator) ([]query.MeasurementPoint, error
 	return points, nil
 }
 
-func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (query.MeasurementPoint, bool) {
+func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (domain.MeasurementPoint, bool) {
 	timestamps := make([]time.Time, 0, len(bucket.byTimestamp))
 	for timestamp := range bucket.byTimestamp {
 		timestamps = append(timestamps, timestamp)
@@ -92,14 +92,14 @@ func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (qu
 			continue
 		}
 
-		return query.MeasurementPoint{
+		return domain.MeasurementPoint{
 			Timestamp:   second,
 			Setpoint:    pointBucket.setpoint,
 			ActivePower: pointBucket.activePower,
 		}, true
 	}
 
-	return query.MeasurementPoint{}, false
+	return domain.MeasurementPoint{}, false
 }
 
 func toFloat64(value any) (float64, error) {

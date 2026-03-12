@@ -8,7 +8,7 @@ import (
 	gobreaker "github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/suite"
 
-	"stellar/internal/measurements/app/query"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
 type CircuitBreakerSuite struct {
@@ -146,7 +146,7 @@ func (s *CircuitBreakerSuite) reportFailure(breaker *circuitBreaker) {
 	done, err := breaker.allow()
 	s.Require().NoError(err)
 
-	done(query.ErrReadModelUnavailable)
+	done(getmeasurements.ErrReadModelUnavailable)
 }
 
 func (s *CircuitBreakerSuite) reportSuccess(breaker *circuitBreaker) {

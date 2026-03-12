@@ -1,4 +1,4 @@
-package ports
+package grpc
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	"google.golang.org/grpc"
+	grpcpkg "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -31,7 +31,7 @@ func (s *GRPCTransportSuite) SetupTest() {
 
 func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorPropagatesIncomingRequestID() {
 	stream := &fakeServerTransportStream{}
-	ctx := grpc.NewContextWithServerTransportStream(
+	ctx := grpcpkg.NewContextWithServerTransportStream(
 		metadata.NewIncomingContext(context.Background(), metadata.Pairs(RequestIDMetadataKey, "req-123")),
 		stream,
 	)
@@ -41,7 +41,7 @@ func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorPropagatesIncomingRequ
 	resp, err := interceptor(
 		ctx,
 		nil,
-		&grpc.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
+		&grpcpkg.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
 		func(ctx context.Context, req any) (any, error) {
 			s.Equal("req-123", RequestIDFromContext(ctx))
 			return "ok", nil
@@ -55,7 +55,7 @@ func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorPropagatesIncomingRequ
 
 func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorFallsBackToCorrelationID() {
 	stream := &fakeServerTransportStream{}
-	ctx := grpc.NewContextWithServerTransportStream(
+	ctx := grpcpkg.NewContextWithServerTransportStream(
 		metadata.NewIncomingContext(context.Background(), metadata.Pairs(CorrelationIDMetadataKey, "corr-123")),
 		stream,
 	)
@@ -65,7 +65,7 @@ func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorFallsBackToCorrelation
 	_, err := interceptor(
 		ctx,
 		nil,
-		&grpc.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
+		&grpcpkg.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
 		func(ctx context.Context, req any) (any, error) {
 			s.Equal("corr-123", RequestIDFromContext(ctx))
 			return nil, nil
@@ -78,7 +78,7 @@ func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorFallsBackToCorrelation
 
 func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorGeneratesRequestIDWhenMissing() {
 	stream := &fakeServerTransportStream{}
-	ctx := grpc.NewContextWithServerTransportStream(context.Background(), stream)
+	ctx := grpcpkg.NewContextWithServerTransportStream(context.Background(), stream)
 
 	interceptor := requestIDUnaryInterceptor()
 
@@ -86,7 +86,7 @@ func (s *GRPCTransportSuite) TestRequestIDUnaryInterceptorGeneratesRequestIDWhen
 	_, err := interceptor(
 		ctx,
 		nil,
-		&grpc.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
+		&grpcpkg.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
 		func(ctx context.Context, req any) (any, error) {
 			requestID = RequestIDFromContext(ctx)
 			return nil, nil
@@ -105,7 +105,7 @@ func (s *GRPCTransportSuite) TestLoggingUnaryInterceptorIncludesRequestID() {
 	_, err := interceptor(
 		ctx,
 		nil,
-		&grpc.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
+		&grpcpkg.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
 		func(context.Context, any) (any, error) {
 			return nil, nil
 		},
@@ -121,7 +121,7 @@ func (s *GRPCTransportSuite) TestRecoveryUnaryInterceptorConvertsPanicsToInterna
 	resp, err := interceptor(
 		withRequestID(context.Background(), "req-panic"),
 		nil,
-		&grpc.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
+		&grpcpkg.UnaryServerInfo{FullMethod: "/measurements.v1.MeasurementService/GetMeasurements"},
 		func(context.Context, any) (any, error) {
 			panic("boom")
 		},
@@ -138,8 +138,8 @@ func (s *GRPCTransportSuite) TestRecoveryStreamInterceptorConvertsPanicsToIntern
 	err := interceptor(
 		nil,
 		&fakeServerStream{ctx: withRequestID(context.Background(), "stream-panic")},
-		&grpc.StreamServerInfo{FullMethod: "/measurements.v1.MeasurementService/StreamMeasurements"},
-		func(any, grpc.ServerStream) error {
+		&grpcpkg.StreamServerInfo{FullMethod: "/measurements.v1.MeasurementService/StreamMeasurements"},
+		func(any, grpcpkg.ServerStream) error {
 			panic("boom")
 		},
 	)
@@ -170,7 +170,7 @@ func (s *fakeServerTransportStream) SetTrailer(metadata.MD) error {
 }
 
 type fakeServerStream struct {
-	grpc.ServerStream
+	grpcpkg.ServerStream
 	ctx    context.Context
 	header metadata.MD
 }

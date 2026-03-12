@@ -1,4 +1,4 @@
-package ports
+package grpc
 
 import (
 	"context"
@@ -8,17 +8,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
+	grpcpkg "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	measurementsv1 "stellar/api/proto"
-	"stellar/internal/measurements/app"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
-type GRPCTransportConfig struct {
+type TransportConfig struct {
 	ConnectionTimeout   time.Duration
 	MaxRecvMsgSizeBytes int
 	MaxSendMsgSizeBytes int
@@ -34,33 +34,61 @@ const (
 
 type requestIDContextKey struct{}
 
-func NewGRPCTransport(logger *slog.Logger, application app.Application, cfg GRPCTransportConfig) *grpc.Server {
-	server := grpc.NewServer(
-		grpc.ConnectionTimeout(cfg.ConnectionTimeout),
-		grpc.MaxRecvMsgSize(cfg.MaxRecvMsgSizeBytes),
-		grpc.MaxSendMsgSize(cfg.MaxSendMsgSizeBytes),
-		grpc.KeepaliveParams(keepalive.ServerParameters{
+type Server struct {
+	measurementsv1.UnimplementedMeasurementServiceServer
+
+	queryHandler getmeasurements.QueryHandler
+}
+
+func NewServer(queryHandler getmeasurements.QueryHandler) *Server {
+	return &Server{queryHandler: queryHandler}
+}
+
+func NewTransport(logger *slog.Logger, queryHandler getmeasurements.QueryHandler, cfg TransportConfig) *grpcpkg.Server {
+	server := grpcpkg.NewServer(
+		grpcpkg.ConnectionTimeout(cfg.ConnectionTimeout),
+		grpcpkg.MaxRecvMsgSize(cfg.MaxRecvMsgSizeBytes),
+		grpcpkg.MaxSendMsgSize(cfg.MaxSendMsgSizeBytes),
+		grpcpkg.KeepaliveParams(keepalive.ServerParameters{
 			Time:    cfg.KeepaliveTime,
 			Timeout: cfg.KeepaliveTimeout,
 		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+		grpcpkg.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime: cfg.KeepaliveMinTime,
 		}),
-		grpc.ChainUnaryInterceptor(
+		grpcpkg.ChainUnaryInterceptor(
 			requestIDUnaryInterceptor(),
 			loggingUnaryInterceptor(logger),
 			recoveryUnaryInterceptor(logger),
 		),
-		grpc.ChainStreamInterceptor(
+		grpcpkg.ChainStreamInterceptor(
 			requestIDStreamInterceptor(),
 			loggingStreamInterceptor(logger),
 			recoveryStreamInterceptor(logger),
 		),
 	)
 
-	measurementsv1.RegisterMeasurementServiceServer(server, NewGRPCServer(application))
+	measurementsv1.RegisterMeasurementServiceServer(server, NewServer(queryHandler))
 
 	return server
+}
+
+func (s *Server) GetMeasurements(ctx context.Context, req *measurementsv1.GetMeasurementsRequest) (*measurementsv1.GetMeasurementsResponse, error) {
+	if s.queryHandler == nil {
+		return nil, status.Error(codes.Unavailable, "measurements read model unavailable")
+	}
+
+	qry, err := toQuery(req)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := s.queryHandler.Handle(ctx, qry)
+	if err != nil {
+		return nil, mapQueryError(err)
+	}
+
+	return toGetMeasurementsResponse(result), nil
 }
 
 func RequestIDFromContext(ctx context.Context) string {
@@ -68,26 +96,26 @@ func RequestIDFromContext(ctx context.Context) string {
 	return value
 }
 
-func requestIDUnaryInterceptor() grpc.UnaryServerInterceptor {
+func requestIDUnaryInterceptor() grpcpkg.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req any,
-		_ *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
+		_ *grpcpkg.UnaryServerInfo,
+		handler grpcpkg.UnaryHandler,
 	) (any, error) {
 		requestID := requestIDFromIncomingContext(ctx)
-		_ = grpc.SetHeader(ctx, metadata.Pairs(RequestIDMetadataKey, requestID))
+		_ = grpcpkg.SetHeader(ctx, metadata.Pairs(RequestIDMetadataKey, requestID))
 
 		return handler(withRequestID(ctx, requestID), req)
 	}
 }
 
-func requestIDStreamInterceptor() grpc.StreamServerInterceptor {
+func requestIDStreamInterceptor() grpcpkg.StreamServerInterceptor {
 	return func(
 		srv any,
-		stream grpc.ServerStream,
-		_ *grpc.StreamServerInfo,
-		handler grpc.StreamHandler,
+		stream grpcpkg.ServerStream,
+		_ *grpcpkg.StreamServerInfo,
+		handler grpcpkg.StreamHandler,
 	) error {
 		requestID := requestIDFromIncomingContext(stream.Context())
 		_ = stream.SetHeader(metadata.Pairs(RequestIDMetadataKey, requestID))
@@ -99,14 +127,14 @@ func requestIDStreamInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-func loggingUnaryInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
+func loggingUnaryInterceptor(logger *slog.Logger) grpcpkg.UnaryServerInterceptor {
 	logger = fallbackLogger(logger)
 
 	return func(
 		ctx context.Context,
 		req any,
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
+		info *grpcpkg.UnaryServerInfo,
+		handler grpcpkg.UnaryHandler,
 	) (resp any, err error) {
 		start := time.Now()
 		resp, err = handler(ctx, req)
@@ -122,14 +150,14 @@ func loggingUnaryInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	}
 }
 
-func loggingStreamInterceptor(logger *slog.Logger) grpc.StreamServerInterceptor {
+func loggingStreamInterceptor(logger *slog.Logger) grpcpkg.StreamServerInterceptor {
 	logger = fallbackLogger(logger)
 
 	return func(
 		srv any,
-		stream grpc.ServerStream,
-		info *grpc.StreamServerInfo,
-		handler grpc.StreamHandler,
+		stream grpcpkg.ServerStream,
+		info *grpcpkg.StreamServerInfo,
+		handler grpcpkg.StreamHandler,
 	) (err error) {
 		start := time.Now()
 		err = handler(srv, stream)
@@ -145,14 +173,14 @@ func loggingStreamInterceptor(logger *slog.Logger) grpc.StreamServerInterceptor 
 	}
 }
 
-func recoveryUnaryInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
+func recoveryUnaryInterceptor(logger *slog.Logger) grpcpkg.UnaryServerInterceptor {
 	logger = fallbackLogger(logger)
 
 	return func(
 		ctx context.Context,
 		req any,
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
+		info *grpcpkg.UnaryServerInfo,
+		handler grpcpkg.UnaryHandler,
 	) (resp any, err error) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -171,14 +199,14 @@ func recoveryUnaryInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	}
 }
 
-func recoveryStreamInterceptor(logger *slog.Logger) grpc.StreamServerInterceptor {
+func recoveryStreamInterceptor(logger *slog.Logger) grpcpkg.StreamServerInterceptor {
 	logger = fallbackLogger(logger)
 
 	return func(
 		srv any,
-		stream grpc.ServerStream,
-		info *grpc.StreamServerInfo,
-		handler grpc.StreamHandler,
+		stream grpcpkg.ServerStream,
+		info *grpcpkg.StreamServerInfo,
+		handler grpcpkg.StreamHandler,
 	) (err error) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -222,7 +250,7 @@ func withRequestID(ctx context.Context, requestID string) context.Context {
 }
 
 type requestIDServerStream struct {
-	grpc.ServerStream
+	grpcpkg.ServerStream
 	ctx context.Context
 }
 

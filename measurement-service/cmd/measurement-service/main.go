@@ -16,9 +16,10 @@ import (
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"google.golang.org/grpc"
 
-	"stellar/internal/measurements/adapters/influxdb"
-	"stellar/internal/measurements/app"
-	"stellar/internal/measurements/ports"
+	grpcadapter "stellar/internal/measurements/adapters/inbound/grpc"
+	"stellar/internal/measurements/adapters/outbound/influxdb"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
+	"stellar/internal/platform/health"
 )
 
 func main() {
@@ -39,21 +40,21 @@ func run(logger *slog.Logger) error {
 	influxClient := influxdb2.NewClient(cfg.InfluxURL, cfg.InfluxToken)
 	defer influxClient.Close()
 
-	application, err := app.NewWithConfig(
+	getMeasurements, err := getmeasurements.NewUseCaseWithConfig(
 		influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
 			FailureThreshold:    cfg.InfluxCircuitBreakerFailureThreshold,
 			OpenTimeout:         cfg.InfluxCircuitBreakerOpenTimeout,
 			HalfOpenMaxRequests: cfg.InfluxCircuitBreakerHalfOpenMaxRequests,
 		}),
-		app.Config{
+		getmeasurements.Config{
 			MaxQueryRange: cfg.MaxQueryRange,
 		},
 	)
 	if err != nil {
-		logger.Error("failed to initialize application", "error", err)
+		logger.Error("failed to initialize get measurements use case", "error", err)
 		os.Exit(1)
 	}
-	grpcServer := ports.NewGRPCTransport(logger, application, ports.GRPCTransportConfig{
+	grpcServer := grpcadapter.NewTransport(logger, getMeasurements, grpcadapter.TransportConfig{
 		ConnectionTimeout:   cfg.GRPCConnectionTimeout,
 		MaxRecvMsgSizeBytes: cfg.GRPCMaxRecvMsgSizeBytes,
 		MaxSendMsgSizeBytes: cfg.GRPCMaxSendMsgSizeBytes,
@@ -70,7 +71,7 @@ func run(logger *slog.Logger) error {
 	var ready atomic.Bool
 	healthServer := &http.Server{
 		Addr:    cfg.HealthListenAddr,
-		Handler: ports.NewHealthHandler(ready.Load),
+		Handler: health.NewHealthHandler(ready.Load),
 	}
 
 	serverErrors := make(chan error, 2)

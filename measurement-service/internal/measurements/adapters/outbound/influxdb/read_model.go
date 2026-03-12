@@ -9,12 +9,13 @@ import (
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	influxapi "github.com/influxdata/influxdb-client-go/v2/api"
 
-	"stellar/internal/measurements/app/query"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
+	"stellar/internal/measurements/domain"
 )
 
 const measurementName = "asset_measurements"
 
-var _ query.MeasurementsReadModel = (*ReadModel)(nil)
+var _ getmeasurements.MeasurementsReadModel = (*ReadModel)(nil)
 
 type ReadModel struct {
 	bucket  string
@@ -50,17 +51,17 @@ func NewReadModel(client influxdb2.Client, org, bucket string, timeout time.Dura
 	}
 }
 
-func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) ([]query.MeasurementPoint, error) {
+func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) ([]domain.MeasurementPoint, error) {
 	if r.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.timeout)
 		defer cancel()
 	}
 
-	loadMeasurements := func() ([]query.MeasurementPoint, error) {
+	loadMeasurements := func() ([]domain.MeasurementPoint, error) {
 		records, err := r.query.Query(ctx, buildMeasurementsQuery(r.bucket, assetID, from, to))
 		if err != nil {
-			return nil, fmt.Errorf("%w: query influxdb: %w", query.ErrReadModelUnavailable, err)
+			return nil, fmt.Errorf("%w: query influxdb: %w", getmeasurements.ErrReadModelUnavailable, err)
 		}
 
 		points, err := mapRecordsToPoints(records)
@@ -69,7 +70,7 @@ func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, t
 		}
 
 		if err := records.Err(); err != nil {
-			return nil, fmt.Errorf("%w: iterate influxdb records: %w", query.ErrReadModelUnavailable, err)
+			return nil, fmt.Errorf("%w: iterate influxdb records: %w", getmeasurements.ErrReadModelUnavailable, err)
 		}
 
 		return points, nil
@@ -78,7 +79,7 @@ func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, t
 	if r.breaker != nil {
 		done, err := r.breaker.allow()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", query.ErrReadModelUnavailable, err)
+			return nil, fmt.Errorf("%w: %w", getmeasurements.ErrReadModelUnavailable, err)
 		}
 
 		points, err := loadMeasurements()

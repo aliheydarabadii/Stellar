@@ -6,7 +6,7 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
-	"stellar/internal/measurements/app/query"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
 var ErrCircuitOpen = gobreaker.ErrOpenState
@@ -33,7 +33,7 @@ func newCircuitBreaker(cfg CircuitBreakerConfig) *circuitBreaker {
 				return counts.ConsecutiveFailures >= uint32(cfg.FailureThreshold)
 			},
 			IsExcluded: func(err error) bool {
-				return err != nil && !errors.Is(err, query.ErrReadModelUnavailable)
+				return err != nil && !errors.Is(err, getmeasurements.ErrReadModelUnavailable)
 			},
 		}),
 	}

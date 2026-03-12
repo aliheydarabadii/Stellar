@@ -1,6 +1,6 @@
 //go:build integration
 
-package ports
+package grpc
 
 import (
 	"context"
@@ -17,9 +17,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	measurementsv1 "stellar/api/proto"
-	"stellar/internal/measurements/adapters/influxdb"
-	"stellar/internal/measurements/app"
-	"stellar/internal/measurements/testsupport"
+	"stellar/internal/measurements/adapters/outbound/influxdb"
+	getmeasurements "stellar/internal/measurements/application/get_measurements"
+	"stellar/internal/testsupport"
 )
 
 type GRPCIntegrationSuite struct {
@@ -60,12 +60,12 @@ func (s *GRPCIntegrationSuite) TestGetMeasurements() {
 	})
 
 	readModel := influxdb.NewReadModel(influx.Client, influx.Org, influx.Bucket, 10*time.Second, influxdb.CircuitBreakerConfig{})
-	application, err := app.New(readModel)
+	useCase, err := getmeasurements.NewUseCase(readModel)
 	s.Require().NoError(err)
 
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	measurementsv1.RegisterMeasurementServiceServer(server, NewGRPCServer(application))
+	measurementsv1.RegisterMeasurementServiceServer(server, NewServer(useCase))
 	s.T().Cleanup(server.Stop)
 
 	go func() {
