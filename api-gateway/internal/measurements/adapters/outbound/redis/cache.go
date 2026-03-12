@@ -1,4 +1,4 @@
-package cache
+package redis
 
 import (
 	"context"
@@ -10,14 +10,14 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"api_gateway/internal/gateway/app/query"
+	"api_gateway/internal/measurements/domain"
 )
 
-type RedisCache struct {
+type Cache struct {
 	client *redis.Client
 }
 
-func NewRedisCache(ctx context.Context, address, username, password string, db int) (*RedisCache, error) {
+func NewCache(ctx context.Context, address, username, password string, db int) (*Cache, error) {
 	if strings.TrimSpace(address) == "" {
 		return nil, errors.New("redis address is required")
 	}
@@ -34,10 +34,10 @@ func NewRedisCache(ctx context.Context, address, username, password string, db i
 		return nil, fmt.Errorf("ping redis: %w", err)
 	}
 
-	return &RedisCache{client: client}, nil
+	return &Cache{client: client}, nil
 }
 
-func (c *RedisCache) Close() error {
+func (c *Cache) Close() error {
 	if c == nil || c.client == nil {
 		return nil
 	}
@@ -45,7 +45,7 @@ func (c *RedisCache) Close() error {
 	return c.client.Close()
 }
 
-func (c *RedisCache) Ready(ctx context.Context) error {
+func (c *Cache) Ready(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("redis cache is not initialized")
 	}
@@ -57,28 +57,28 @@ func (c *RedisCache) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (c *RedisCache) Get(ctx context.Context, key string) (query.MeasurementSeries, bool, error) {
+func (c *Cache) Get(ctx context.Context, key string) (domain.MeasurementSeries, bool, error) {
 	if c == nil || c.client == nil {
-		return query.MeasurementSeries{}, false, errors.New("redis cache is not initialized")
+		return domain.MeasurementSeries{}, false, errors.New("redis cache is not initialized")
 	}
 
 	payload, err := c.client.Get(ctx, key).Bytes()
 	switch {
 	case errors.Is(err, redis.Nil):
-		return query.MeasurementSeries{}, false, nil
+		return domain.MeasurementSeries{}, false, nil
 	case err != nil:
-		return query.MeasurementSeries{}, false, fmt.Errorf("redis get %q: %w", key, err)
+		return domain.MeasurementSeries{}, false, fmt.Errorf("redis get %q: %w", key, err)
 	}
 
-	var series query.MeasurementSeries
+	var series domain.MeasurementSeries
 	if err := json.Unmarshal(payload, &series); err != nil {
-		return query.MeasurementSeries{}, false, fmt.Errorf("decode cached response %q: %w", key, err)
+		return domain.MeasurementSeries{}, false, fmt.Errorf("decode cached response %q: %w", key, err)
 	}
 
 	return series, true, nil
 }
 
-func (c *RedisCache) Set(ctx context.Context, key string, value query.MeasurementSeries, ttl time.Duration) error {
+func (c *Cache) Set(ctx context.Context, key string, value domain.MeasurementSeries, ttl time.Duration) error {
 	if c == nil || c.client == nil {
 		return errors.New("redis cache is not initialized")
 	}

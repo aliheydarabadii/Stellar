@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"api_gateway/internal/gateway/requestctx"
+	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
+	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/platform/requestctx"
 	grpcpkg "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -16,18 +18,16 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	measurementsv1 "stellar/api/proto"
-
-	"api_gateway/internal/gateway/app/query"
 )
 
-type MeasurementsClient struct {
+type Client struct {
 	conn   *grpcpkg.ClientConn
 	client measurementsv1.MeasurementServiceClient
 }
 
 const readinessProbeAssetID = "gateway-readiness-probe"
 
-func Dial(ctx context.Context, address string) (*MeasurementsClient, error) {
+func Dial(ctx context.Context, address string) (*Client, error) {
 	if strings.TrimSpace(address) == "" {
 		return nil, errors.New("measurement service gRPC address is required")
 	}
@@ -42,13 +42,13 @@ func Dial(ctx context.Context, address string) (*MeasurementsClient, error) {
 		return nil, fmt.Errorf("dial measurement service: %w", err)
 	}
 
-	return &MeasurementsClient{
+	return &Client{
 		conn:   conn,
 		client: measurementsv1.NewMeasurementServiceClient(conn),
 	}, nil
 }
 
-func (c *MeasurementsClient) Close() error {
+func (c *Client) Close() error {
 	if c == nil || c.conn == nil {
 		return nil
 	}
@@ -56,7 +56,7 @@ func (c *MeasurementsClient) Close() error {
 	return c.conn.Close()
 }
 
-func (c *MeasurementsClient) Ready(ctx context.Context) error {
+func (c *Client) Ready(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return errors.New("measurement service client is not initialized")
 	}
@@ -74,9 +74,9 @@ func (c *MeasurementsClient) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (c *MeasurementsClient) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (query.MeasurementSeries, error) {
+func (c *Client) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
 	if c == nil || c.client == nil {
-		return query.MeasurementSeries{}, query.ErrMeasurementServiceUnavailable
+		return domain.MeasurementSeries{}, getmeasurements.ErrMeasurementServiceUnavailable
 	}
 
 	ctx = withOutgoingRequestMetadata(ctx)
@@ -87,7 +87,7 @@ func (c *MeasurementsClient) GetMeasurements(ctx context.Context, assetID string
 		To:      timestamppb.New(to.UTC()),
 	})
 	if err != nil {
-		return query.MeasurementSeries{}, mapGRPCError(err)
+		return domain.MeasurementSeries{}, mapGRPCError(err)
 	}
 
 	return toMeasurementSeries(resp)
@@ -98,34 +98,34 @@ func mapGRPCError(err error) error {
 
 	switch statusErr.Code() {
 	case codes.InvalidArgument:
-		return query.NewDownstreamInvalidRequestError(statusErr.Message())
+		return getmeasurements.NewDownstreamInvalidRequestError(statusErr.Message())
 	case codes.Unavailable, codes.DeadlineExceeded:
-		return fmt.Errorf("%w: %v", query.ErrMeasurementServiceUnavailable, err)
+		return fmt.Errorf("%w: %v", getmeasurements.ErrMeasurementServiceUnavailable, err)
 	default:
 		return fmt.Errorf("measurement service get measurements: %w", err)
 	}
 }
 
-func toMeasurementSeries(resp *measurementsv1.GetMeasurementsResponse) (query.MeasurementSeries, error) {
+func toMeasurementSeries(resp *measurementsv1.GetMeasurementsResponse) (domain.MeasurementSeries, error) {
 	if resp == nil {
-		return query.MeasurementSeries{}, errors.New("measurement service returned nil response")
+		return domain.MeasurementSeries{}, errors.New("measurement service returned nil response")
 	}
 
-	points := make([]query.MeasurementPoint, 0, len(resp.GetPoints()))
+	points := make([]domain.MeasurementPoint, 0, len(resp.GetPoints()))
 	for _, point := range resp.GetPoints() {
 		timestamp, err := timestampToTime(point.GetTimestamp())
 		if err != nil {
-			return query.MeasurementSeries{}, err
+			return domain.MeasurementSeries{}, err
 		}
 
-		points = append(points, query.MeasurementPoint{
+		points = append(points, domain.MeasurementPoint{
 			Timestamp:   timestamp,
 			Setpoint:    point.GetSetpoint(),
 			ActivePower: point.GetActivePower(),
 		})
 	}
 
-	return query.MeasurementSeries{
+	return domain.MeasurementSeries{
 		AssetID: resp.GetAssetId(),
 		Points:  points,
 	}, nil

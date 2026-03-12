@@ -1,25 +1,24 @@
-package ports
+package http
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
+	stdhttp "net/http"
 	"time"
 
-	"api_gateway/internal/gateway/app"
-	"api_gateway/internal/gateway/app/query"
-	"api_gateway/internal/gateway/requestctx"
+	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
+	"api_gateway/internal/platform/requestctx"
 )
 
 type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHTTPHandler(application app.Application, logger *slog.Logger, requestTimeout time.Duration) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /assets/{asset_id}/measurements", func(w http.ResponseWriter, r *http.Request) {
+func NewHandler(useCase getmeasurements.UseCase, logger *slog.Logger, requestTimeout time.Duration) stdhttp.Handler {
+	mux := stdhttp.NewServeMux()
+	mux.HandleFunc("GET /assets/{asset_id}/measurements", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		ctx := r.Context()
 		if requestTimeout > 0 {
 			var cancel context.CancelFunc
@@ -29,17 +28,17 @@ func NewHTTPHandler(application app.Application, logger *slog.Logger, requestTim
 
 		from, err := parseTimeParam(r, "from")
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			writeJSON(w, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
 			return
 		}
 
 		to, err := parseTimeParam(r, "to")
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			writeJSON(w, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
 			return
 		}
 
-		series, err := application.Queries.GetMeasurements.Handle(ctx, query.GetMeasurements{
+		series, err := useCase.Handle(ctx, getmeasurements.Query{
 			AssetID: r.PathValue("asset_id"),
 			From:    from,
 			To:      to,
@@ -49,16 +48,16 @@ func NewHTTPHandler(application app.Application, logger *slog.Logger, requestTim
 			return
 		}
 
-		writeJSON(w, http.StatusOK, series)
+		writeJSON(w, stdhttp.StatusOK, series)
 	})
 
-	handler := http.Handler(mux)
+	handler := stdhttp.Handler(mux)
 	handler = withAccessLogging(handler, logger)
 	handler = withRequestMetadata(handler)
 	return handler
 }
 
-func parseTimeParam(r *http.Request, name string) (time.Time, error) {
+func parseTimeParam(r *stdhttp.Request, name string) (time.Time, error) {
 	value := r.URL.Query().Get(name)
 	if value == "" {
 		return time.Time{}, errors.New(name + " is required")
@@ -72,33 +71,33 @@ func parseTimeParam(r *http.Request, name string) (time.Time, error) {
 	return parsed.UTC(), nil
 }
 
-func writeQueryError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
+func writeQueryError(w stdhttp.ResponseWriter, r *stdhttp.Request, logger *slog.Logger, err error) {
 	switch {
-	case errors.Is(err, query.ErrAssetIDRequired),
-		errors.Is(err, query.ErrTimestampZero),
-		errors.Is(err, query.ErrInvalidTimeRange),
-		errors.Is(err, query.ErrDownstreamInvalidRequest):
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
-	case errors.Is(err, query.ErrMeasurementServiceUnavailable),
+	case errors.Is(err, getmeasurements.ErrAssetIDRequired),
+		errors.Is(err, getmeasurements.ErrTimestampZero),
+		errors.Is(err, getmeasurements.ErrInvalidTimeRange),
+		errors.Is(err, getmeasurements.ErrDownstreamInvalidRequest):
+		writeJSON(w, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
+	case errors.Is(err, getmeasurements.ErrMeasurementServiceUnavailable),
 		errors.Is(err, context.DeadlineExceeded):
 		if logger != nil {
 			logger.WarnContext(r.Context(), "measurement service unavailable", "error", err)
 		}
-		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "measurement service unavailable"})
+		writeJSON(w, stdhttp.StatusServiceUnavailable, errorResponse{Error: "measurement service unavailable"})
 	default:
 		if logger != nil {
 			logger.ErrorContext(r.Context(), "get measurements failed", "error", err)
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal server error"})
+		writeJSON(w, stdhttp.StatusInternalServerError, errorResponse{Error: "internal server error"})
 	}
 }
 
-func withAccessLogging(next http.Handler, logger *slog.Logger) http.Handler {
+func withAccessLogging(next stdhttp.Handler, logger *slog.Logger) stdhttp.Handler {
 	if logger == nil {
 		return next
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		start := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w}
 
@@ -127,8 +126,8 @@ func withAccessLogging(next http.Handler, logger *slog.Logger) http.Handler {
 	})
 }
 
-func withRequestMetadata(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func withRequestMetadata(next stdhttp.Handler) stdhttp.Handler {
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		requestID, correlationID := requestctx.Normalize(
 			r.Header.Get(requestctx.RequestIDHeader),
 			r.Header.Get(requestctx.CorrelationIDHeader),
@@ -145,7 +144,7 @@ func withRequestMetadata(next http.Handler) http.Handler {
 }
 
 type statusRecorder struct {
-	http.ResponseWriter
+	stdhttp.ResponseWriter
 	statusCode int
 }
 
@@ -156,7 +155,7 @@ func (r *statusRecorder) WriteHeader(statusCode int) {
 
 func (r *statusRecorder) Write(p []byte) (int, error) {
 	if r.statusCode == 0 {
-		r.statusCode = http.StatusOK
+		r.statusCode = stdhttp.StatusOK
 	}
 
 	return r.ResponseWriter.Write(p)
@@ -164,13 +163,13 @@ func (r *statusRecorder) Write(p []byte) (int, error) {
 
 func (r *statusRecorder) StatusCode() int {
 	if r.statusCode == 0 {
-		return http.StatusOK
+		return stdhttp.StatusOK
 	}
 
 	return r.statusCode
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
+func writeJSON(w stdhttp.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 

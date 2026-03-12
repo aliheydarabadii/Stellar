@@ -12,19 +12,19 @@ const (
 	CorrelationIDHeader = "x-correlation-id"
 )
 
+const (
+	CacheStatusHit           = "hit"
+	CacheStatusMiss          = "miss"
+	CacheStatusBypass        = "bypass"
+	CacheStatusNotApplicable = "not_applicable"
+)
+
 type contextKey string
 
 const (
 	requestIDContextKey     contextKey = "request_id"
 	correlationIDContextKey contextKey = "correlation_id"
 	requestStateContextKey  contextKey = "request_state"
-)
-
-const (
-	CacheStatusHit           = "hit"
-	CacheStatusMiss          = "miss"
-	CacheStatusBypass        = "bypass"
-	CacheStatusNotApplicable = "not_applicable"
 )
 
 type requestState struct {
@@ -59,6 +59,7 @@ func WithValues(ctx context.Context, requestID, correlationID string) context.Co
 	ctx = context.WithValue(ctx, requestStateContextKey, state)
 	ctx = context.WithValue(ctx, requestIDContextKey, requestID)
 	ctx = context.WithValue(ctx, correlationIDContextKey, correlationID)
+
 	return ctx
 }
 

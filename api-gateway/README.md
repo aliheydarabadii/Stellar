@@ -4,13 +4,15 @@ The API Gateway is the external read-side entrypoint for historical asset measur
 
 ## Architecture
 
-The service keeps orchestration in a thin application layer:
+The service is organized around the measurements use case:
 
-- `internal/gateway/app`: application wiring and the `GetMeasurements` query handler
-- `internal/gateway/adapters/grpc`: gRPC client adapter for the Measurement Service
-- `internal/gateway/adapters/cache`: Redis-backed cache adapter and deterministic cache keys
-- `internal/gateway/ports`: HTTP API and health endpoints
-- `cmd/api-gateway`: bootstrap, config, wiring, logging, and graceful shutdown
+- `internal/measurements/application/get_measurements`: request DTOs, ports, errors, and the `GetMeasurements` use case
+- `internal/measurements/domain`: read-side measurement entities returned by the gateway
+- `internal/measurements/adapters/outbound/grpc`: gRPC client adapter for the Measurement Service
+- `internal/measurements/adapters/outbound/redis`: Redis-backed cache adapter and deterministic cache keys
+- `internal/measurements/adapters/inbound/http`: REST API, health endpoints, and HTTP-specific request handling
+- `internal/platform`: shared configuration, logging, and request context utilities
+- `cmd/api-gateway`: bootstrap, dependency wiring, readiness composition, and graceful shutdown
 
 This service is read-side only. It does not talk to Modbus, does not write to InfluxDB, and does not query InfluxDB directly.
 
@@ -22,23 +24,33 @@ cmd/
     main.go
 
 internal/
-  gateway/
-    app/
-      app.go
-      query/
-        get_measurements.go
-        types.go
-
-    ports/
-      http.go
-      health.go
-
+  measurements/
+    application/
+      get_measurements/
+        dto.go
+        errors.go
+        ports.go
+        usecase.go
+    domain/
+      measurement.go
     adapters/
-      grpc/
-        measurements_client.go
-      cache/
-        redis_cache.go
-        key.go
+      inbound/
+        http/
+          handler.go
+          health.go
+      outbound/
+        grpc/
+          client.go
+        redis/
+          cache.go
+          key_builder.go
+  platform/
+    config/
+      config.go
+    logging/
+      logger.go
+    requestctx/
+      requestctx.go
 ```
 
 ## Configuration

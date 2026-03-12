@@ -1,4 +1,4 @@
-package query
+package domain
 
 import "time"
 

@@ -2,13 +2,14 @@ package grpc
 
 import (
 	"context"
-	"errors"
 	"net"
 	"testing"
 	"time"
 
-	"api_gateway/internal/gateway/app/query"
-	"api_gateway/internal/gateway/requestctx"
+	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
+	"api_gateway/internal/platform/requestctx"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,13 +23,19 @@ import (
 
 const bufConnSize = 1024 * 1024
 
-func TestMeasurementsClientGetMeasurementsPropagatesRequestMetadata(t *testing.T) {
-	t.Parallel()
+type ClientSuite struct {
+	suite.Suite
+}
 
+func TestClientSuite(t *testing.T) {
+	suite.Run(t, new(ClientSuite))
+}
+
+func (s *ClientSuite) TestGetMeasurementsPropagatesRequestMetadata() {
 	testServer := &capturingMeasurementService{}
-	conn := newBufconnClientConn(t, testServer)
+	conn := newBufconnClientConn(s.T(), testServer)
 
-	client := &MeasurementsClient{
+	client := &Client{
 		conn:   conn,
 		client: measurementsv1.NewMeasurementServiceClient(conn),
 	}
@@ -37,53 +44,40 @@ func TestMeasurementsClientGetMeasurementsPropagatesRequestMetadata(t *testing.T
 	ctx := requestctx.WithValues(context.Background(), "req-123", "corr-123")
 
 	_, err := client.GetMeasurements(ctx, "asset-1", base, base.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("get measurements: %v", err)
-	}
 
-	if testServer.requestID != "req-123" {
-		t.Fatalf("expected request id %q, got %q", "req-123", testServer.requestID)
-	}
-	if testServer.correlationID != "corr-123" {
-		t.Fatalf("expected correlation id %q, got %q", "corr-123", testServer.correlationID)
-	}
+	s.Require().NoError(err)
+	s.Equal("req-123", testServer.requestID)
+	s.Equal("corr-123", testServer.correlationID)
 }
 
-func TestMeasurementsClientGetMeasurementsMapsInvalidArgumentToBadRequest(t *testing.T) {
-	t.Parallel()
-
-	conn := newBufconnClientConn(t, &capturingMeasurementService{
+func (s *ClientSuite) TestGetMeasurementsMapsInvalidArgumentToBadRequest() {
+	conn := newBufconnClientConn(s.T(), &capturingMeasurementService{
 		err: status.Error(codes.InvalidArgument, "query time range exceeds maximum allowed window"),
 	})
 
-	client := &MeasurementsClient{
+	client := &Client{
 		conn:   conn,
 		client: measurementsv1.NewMeasurementServiceClient(conn),
 	}
 
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	_, err := client.GetMeasurements(context.Background(), "asset-1", base, base.Add(time.Minute))
-	if !errors.Is(err, query.ErrDownstreamInvalidRequest) {
-		t.Fatalf("expected downstream invalid request error, got %v", err)
-	}
+
+	s.ErrorIs(err, getmeasurements.ErrDownstreamInvalidRequest)
 }
 
-func TestMeasurementsClientReadyExecutesDependencyProbe(t *testing.T) {
-	t.Parallel()
-
+func (s *ClientSuite) TestReadyExecutesDependencyProbe() {
 	testServer := &capturingMeasurementService{}
-	conn := newBufconnClientConn(t, testServer)
-	client := &MeasurementsClient{
+	conn := newBufconnClientConn(s.T(), testServer)
+	client := &Client{
 		conn:   conn,
 		client: measurementsv1.NewMeasurementServiceClient(conn),
 	}
 
-	if err := client.Ready(context.Background()); err != nil {
-		t.Fatalf("expected readiness probe to succeed, got %v", err)
-	}
-	if testServer.lastAssetID != readinessProbeAssetID {
-		t.Fatalf("expected readiness probe asset id %q, got %q", readinessProbeAssetID, testServer.lastAssetID)
-	}
+	err := client.Ready(context.Background())
+
+	s.Require().NoError(err)
+	s.Equal(readinessProbeAssetID, testServer.lastAssetID)
 }
 
 type capturingMeasurementService struct {
@@ -149,9 +143,7 @@ func newBufconnClientConn(t *testing.T, svc measurementsv1.MeasurementServiceSer
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
-	if err != nil {
-		t.Fatalf("dial bufconn: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Close()
 	})

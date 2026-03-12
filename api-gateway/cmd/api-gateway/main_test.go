@@ -2,65 +2,36 @@ package main
 
 import (
 	"context"
-	"strings"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"api_gateway/internal/platform/config"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestLoadConfigDefaults(t *testing.T) {
-	t.Setenv("MEASUREMENT_SERVICE_GRPC_ADDR", "127.0.0.1:9090")
-	t.Setenv("REDIS_ADDR", "127.0.0.1:6379")
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
-	if cfg.ReadinessCheckTimeout != defaultReadinessCheckTimeout {
-		t.Fatalf("expected readiness timeout %v, got %v", defaultReadinessCheckTimeout, cfg.ReadinessCheckTimeout)
-	}
-	if cfg.HTTPReadHeaderTimeout != defaultHTTPReadHeaderTimeout {
-		t.Fatalf("expected read header timeout %v, got %v", defaultHTTPReadHeaderTimeout, cfg.HTTPReadHeaderTimeout)
-	}
-	if cfg.HTTPReadTimeout != defaultHTTPReadTimeout {
-		t.Fatalf("expected read timeout %v, got %v", defaultHTTPReadTimeout, cfg.HTTPReadTimeout)
-	}
-	if cfg.HTTPWriteTimeout != defaultHTTPWriteTimeout {
-		t.Fatalf("expected write timeout %v, got %v", defaultHTTPWriteTimeout, cfg.HTTPWriteTimeout)
-	}
-	if cfg.HTTPIdleTimeout != defaultHTTPIdleTimeout {
-		t.Fatalf("expected idle timeout %v, got %v", defaultHTTPIdleTimeout, cfg.HTTPIdleTimeout)
-	}
-	if cfg.HTTPMaxHeaderBytes != defaultHTTPMaxHeaderBytes {
-		t.Fatalf("expected max header bytes %d, got %d", defaultHTTPMaxHeaderBytes, cfg.HTTPMaxHeaderBytes)
-	}
+type MainSuite struct {
+	suite.Suite
 }
 
-func TestLoadConfigRejectsInvalidReadinessTimeout(t *testing.T) {
-	t.Setenv("MEASUREMENT_SERVICE_GRPC_ADDR", "127.0.0.1:9090")
-	t.Setenv("REDIS_ADDR", "127.0.0.1:6379")
-	t.Setenv("READINESS_CHECK_TIMEOUT", "0s")
-
-	_, err := loadConfig()
-	if err == nil || !strings.Contains(err.Error(), "READINESS_CHECK_TIMEOUT must be positive") {
-		t.Fatalf("expected readiness timeout validation error, got %v", err)
-	}
+func TestMainSuite(t *testing.T) {
+	suite.Run(t, new(MainSuite))
 }
 
-func TestNewReadinessCheckFailsWhenServiceNotStarted(t *testing.T) {
+func (s *MainSuite) TestNewReadinessCheckFailsWhenServiceNotStarted() {
 	var started atomic.Bool
 
 	check := newReadinessCheck(&started, readinessDependencyFunc(func(context.Context) error {
 		return nil
 	}))
 
-	if err := check(context.Background()); err == nil {
-		t.Fatal("expected readiness check to fail before startup")
-	}
+	err := check(context.Background())
+
+	s.Require().Error(err)
 }
 
-func TestNewReadinessCheckCallsDependencies(t *testing.T) {
+func (s *MainSuite) TestNewReadinessCheckCallsDependencies() {
 	var started atomic.Bool
 	started.Store(true)
 
@@ -73,12 +44,28 @@ func TestNewReadinessCheckCallsDependencies(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	if err := check(ctx); err != nil {
-		t.Fatalf("expected readiness check to succeed, got %v", err)
+	err := check(ctx)
+
+	s.Require().NoError(err)
+	s.True(called)
+}
+
+func (s *MainSuite) TestNewHTTPServerUsesConfiguredTimeouts() {
+	cfg := config.Config{
+		HTTPReadHeaderTimeout: 5 * time.Second,
+		HTTPReadTimeout:       10 * time.Second,
+		HTTPWriteTimeout:      15 * time.Second,
+		HTTPIdleTimeout:       60 * time.Second,
+		HTTPMaxHeaderBytes:    1 << 20,
 	}
-	if !called {
-		t.Fatal("expected dependency to be called")
-	}
+
+	server := newHTTPServer(":8080", http.NewServeMux(), cfg)
+
+	s.Equal(cfg.HTTPReadHeaderTimeout, server.ReadHeaderTimeout)
+	s.Equal(cfg.HTTPReadTimeout, server.ReadTimeout)
+	s.Equal(cfg.HTTPWriteTimeout, server.WriteTimeout)
+	s.Equal(cfg.HTTPIdleTimeout, server.IdleTimeout)
+	s.Equal(cfg.HTTPMaxHeaderBytes, server.MaxHeaderBytes)
 }
 
 type readinessDependencyFunc func(context.Context) error
