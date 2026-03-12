@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"strings"
@@ -18,6 +18,7 @@ func TestConfigSuite(t *testing.T) {
 
 func (s *ConfigSuite) TestLoadConfigSuccess() {
 	setValidEnv(s.T())
+	s.T().Setenv("LOG_LEVEL", "DEBUG")
 	s.T().Setenv("GRPC_CONNECTION_TIMEOUT", "7s")
 	s.T().Setenv("GRPC_MAX_RECV_MSG_SIZE_BYTES", "8388608")
 	s.T().Setenv("GRPC_MAX_SEND_MSG_SIZE_BYTES", "16777216")
@@ -30,9 +31,10 @@ func (s *ConfigSuite) TestLoadConfigSuccess() {
 	s.T().Setenv("INFLUX_CIRCUIT_BREAKER_OPEN_TIMEOUT", "45s")
 	s.T().Setenv("INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "2")
 
-	cfg, err := loadConfig()
+	cfg, err := Load()
 	s.Require().NoError(err)
 
+	s.Equal("DEBUG", cfg.LogLevel)
 	s.Equal("http://localhost:8086", cfg.InfluxURL)
 	s.Equal(7*time.Second, cfg.GRPCConnectionTimeout)
 	s.Equal(8*1024*1024, cfg.GRPCMaxRecvMsgSizeBytes)
@@ -50,9 +52,10 @@ func (s *ConfigSuite) TestLoadConfigSuccess() {
 func (s *ConfigSuite) TestLoadConfigUsesDefaults() {
 	setValidEnv(s.T())
 
-	cfg, err := loadConfig()
+	cfg, err := Load()
 	s.Require().NoError(err)
 
+	s.Equal("INFO", cfg.LogLevel)
 	s.Equal(":9090", cfg.GRPCListenAddr)
 	s.Equal(5*time.Second, cfg.GRPCConnectionTimeout)
 	s.Equal(4*1024*1024, cfg.GRPCMaxRecvMsgSizeBytes)
@@ -83,7 +86,7 @@ func (s *ConfigSuite) TestLoadConfigFailsWhenRequiredInfluxEnvMissing() {
 			setValidEnv(s.T())
 			s.T().Setenv(tc.key, "")
 
-			_, err := loadConfig()
+			_, err := Load()
 			s.Require().Error(err)
 			s.Equal(tc.wantErr, err.Error())
 		})
@@ -135,7 +138,7 @@ func (s *ConfigSuite) TestLoadConfigFailsOnInvalidGRPCServerSettings() {
 			setValidEnv(s.T())
 			s.T().Setenv(tc.key, tc.value)
 
-			_, err := loadConfig()
+			_, err := Load()
 			s.Require().Error(err)
 			s.Contains(err.Error(), tc.want)
 		})
@@ -159,7 +162,7 @@ func (s *ConfigSuite) TestLoadConfigFailsOnInvalidQueryTimeout() {
 			setValidEnv(s.T())
 			s.T().Setenv("QUERY_TIMEOUT", tc.value)
 
-			_, err := loadConfig()
+			_, err := Load()
 			s.Require().Error(err)
 			s.Contains(err.Error(), tc.want)
 		})
@@ -182,7 +185,7 @@ func (s *ConfigSuite) TestLoadConfigFailsOnInvalidMaxQueryRange() {
 			setValidEnv(s.T())
 			s.T().Setenv("MAX_QUERY_RANGE", tc.value)
 
-			_, err := loadConfig()
+			_, err := Load()
 			s.Require().Error(err)
 			s.Contains(err.Error(), tc.want)
 		})
@@ -228,7 +231,7 @@ func (s *ConfigSuite) TestLoadConfigFailsOnInvalidPositiveIntegerSettings() {
 			setValidEnv(s.T())
 			s.T().Setenv(tc.key, tc.value)
 
-			_, err := loadConfig()
+			_, err := Load()
 			s.Require().Error(err)
 			s.True(strings.Contains(err.Error(), tc.want), "expected error containing %q, got %v", tc.want, err)
 		})

@@ -19,24 +19,33 @@ import (
 	grpcadapter "stellar/internal/measurements/adapters/inbound/grpc"
 	"stellar/internal/measurements/adapters/outbound/influxdb"
 	getmeasurements "stellar/internal/measurements/application/get_measurements"
+	"stellar/internal/platform/config"
 	"stellar/internal/platform/health"
+	"stellar/internal/platform/logging"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	bootstrapLogger := logging.NewDefaultLogger()
 
-	if err := run(logger); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		bootstrapLogger.Error("measurement service stopped", "error", err)
+		os.Exit(1)
+	}
+
+	logger, err := logging.NewLogger(cfg.LogLevel)
+	if err != nil {
+		bootstrapLogger.Error("measurement service stopped", "error", err)
+		os.Exit(1)
+	}
+
+	if err := run(cfg, logger); err != nil {
 		logger.Error("measurement service stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-
+func run(cfg config.Config, logger *slog.Logger) error {
 	influxClient := influxdb2.NewClient(cfg.InfluxURL, cfg.InfluxToken)
 	defer influxClient.Close()
 
@@ -51,8 +60,7 @@ func run(logger *slog.Logger) error {
 		},
 	)
 	if err != nil {
-		logger.Error("failed to initialize get measurements use case", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("initialize get measurements use case: %w", err)
 	}
 	grpcServer := grpcadapter.NewTransport(logger, getMeasurements, grpcadapter.TransportConfig{
 		ConnectionTimeout:   cfg.GRPCConnectionTimeout,

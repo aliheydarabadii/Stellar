@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"errors"
@@ -8,7 +8,8 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
-type config struct {
+type Config struct {
+	LogLevel                                string        `env:"LOG_LEVEL" envDefault:"INFO"`
 	InfluxURL                               string        `env:"INFLUX_URL"`
 	InfluxOrg                               string        `env:"INFLUX_ORG"`
 	InfluxBucket                            string        `env:"INFLUX_BUCKET"`
@@ -28,20 +29,20 @@ type config struct {
 	InfluxCircuitBreakerHalfOpenMaxRequests int           `env:"INFLUX_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS" envDefault:"1"`
 }
 
-func loadConfig() (config, error) {
-	cfg, err := env.ParseAs[config]()
+func Load() (Config, error) {
+	cfg, err := env.ParseAs[Config]()
 	if err != nil {
-		return config{}, translateConfigParseError(err)
+		return Config{}, translateConfigParseError(err)
 	}
 
 	if err := validateConfig(cfg); err != nil {
-		return config{}, err
+		return Config{}, err
 	}
 
 	return cfg, nil
 }
 
-func validateConfig(cfg config) error {
+func validateConfig(cfg Config) error {
 	switch {
 	case cfg.InfluxURL == "":
 		return errors.New("INFLUX_URL is required")
@@ -89,6 +90,8 @@ func translateConfigParseError(err error) error {
 
 func configFieldEnvName(fieldName string) string {
 	switch fieldName {
+	case "LogLevel":
+		return "LOG_LEVEL"
 	case "InfluxURL":
 		return "INFLUX_URL"
 	case "InfluxOrg":

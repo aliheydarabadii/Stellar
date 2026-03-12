@@ -10,6 +10,8 @@ The service follows a clean-architecture-inspired, CQRS query-side layout with p
 - `internal/measurements/application/get_measurements`: query DTO, ports, errors, and use case
 - `internal/measurements/adapters/inbound/grpc`: internal gRPC transport and mapping
 - `internal/measurements/adapters/outbound/influxdb`: InfluxDB-backed read model adapter
+- `internal/platform/config`: environment-driven runtime configuration
+- `internal/platform/logging`: structured logger construction and log-level parsing
 - `internal/platform/health`: operational health endpoints
 - `internal/testsupport`: shared integration-test helpers
 - `api/proto`: gRPC contract
@@ -53,6 +55,10 @@ internal/
           circuit_breaker.go
 
   platform/
+    config/
+      config.go
+    logging/
+      logger.go
     health/
       handler.go
 
@@ -66,6 +72,7 @@ Generated protobuf stubs live alongside the proto source in `api/proto`.
 
 The service reads configuration from environment variables:
 
+- `LOG_LEVEL`: structured log level, default `INFO`
 - `INFLUX_URL`: InfluxDB base URL, required
 - `INFLUX_ORG`: InfluxDB organization, required
 - `INFLUX_BUCKET`: InfluxDB bucket, required
@@ -115,6 +122,8 @@ The service starts:
 
 - a gRPC server on `GRPC_LISTEN_ADDR`
 - an HTTP health server with `/healthz` and `/readyz` on `HEALTH_LISTEN_ADDR`
+
+`cmd/measurement-service/main.go` acts as the composition root: it loads platform config, constructs the logger, wires the InfluxDB read model and `get_measurements` use case, and then starts the gRPC and health servers.
 
 The gRPC server includes panic recovery and returns `Internal` instead of crashing the process if a handler panics.
 It also accepts `x-request-id` or `x-correlation-id` gRPC metadata, propagates the request ID through the service context, echoes it back as `x-request-id`, and includes it in request logs.
