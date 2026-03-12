@@ -61,6 +61,7 @@ internal/
 
 Environment variables:
 
+- `LOG_LEVEL`: optional structured log level, default `INFO`
 - `MEASUREMENT_SERVICE_GRPC_ADDR`: Measurement Service gRPC address, required
 - `HTTP_LISTEN_ADDR`: gateway HTTP listen address, default `:8080`
 - `HEALTH_LISTEN_ADDR`: health HTTP listen address, default `:8081`; set it equal to `HTTP_LISTEN_ADDR` or empty to serve health on the main HTTP server

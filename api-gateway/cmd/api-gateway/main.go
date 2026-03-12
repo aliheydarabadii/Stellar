@@ -25,20 +25,27 @@ type readinessDependency interface {
 }
 
 func main() {
-	logger := logging.NewLogger()
+	bootstrapLogger, _ := logging.NewLogger(logging.DefaultLogLevel)
 
-	if err := run(logger); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		bootstrapLogger.Error("api gateway stopped", "error", err)
+		os.Exit(1)
+	}
+
+	logger, err := logging.NewLogger(cfg.LogLevel)
+	if err != nil {
+		bootstrapLogger.Error("api gateway stopped", "error", err)
+		os.Exit(1)
+	}
+
+	if err := run(cfg, logger); err != nil {
 		logger.Error("api gateway stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
+func run(cfg config.Config, logger *slog.Logger) error {
 	startupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

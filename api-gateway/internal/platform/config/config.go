@@ -22,6 +22,7 @@ const (
 )
 
 type Config struct {
+	LogLevel                   string        `env:"LOG_LEVEL" envDefault:"INFO"`
 	MeasurementServiceGRPCAddr string        `env:"MEASUREMENT_SERVICE_GRPC_ADDR"`
 	HTTPListenAddr             string        `env:"HTTP_LISTEN_ADDR" envDefault:":8080"`
 	HealthListenAddr           string        `env:"HEALTH_LISTEN_ADDR" envDefault:":8081"`
@@ -123,6 +124,8 @@ func configFieldEnvName(fieldName string) string {
 	switch fieldName {
 	case "MeasurementServiceGRPCAddr":
 		return "MEASUREMENT_SERVICE_GRPC_ADDR"
+	case "LogLevel":
+		return "LOG_LEVEL"
 	case "HTTPListenAddr":
 		return "HTTP_LISTEN_ADDR"
 	case "HealthListenAddr":

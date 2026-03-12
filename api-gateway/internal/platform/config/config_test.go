@@ -22,6 +22,7 @@ func (s *ConfigSuite) TestLoadDefaults() {
 	cfg, err := Load()
 
 	s.Require().NoError(err)
+	s.Equal("INFO", cfg.LogLevel)
 	s.Equal(DefaultCacheTTL, cfg.CacheTTL)
 	s.Equal(DefaultRequestTimeout, cfg.RequestTimeout)
 	s.Equal(DefaultReadinessCheckTimeout, cfg.ReadinessCheckTimeout)
