@@ -8,7 +8,7 @@ The service is organized around the measurements use case:
 
 - `internal/measurements/application/get_measurements`: request DTOs, input and output ports, query validation, and the `GetMeasurements` use case
 - `internal/measurements/domain`: read-side measurement entities returned by the gateway
-- `internal/measurements/adapters/outbound/grpc`: gRPC client adapter for the Measurement Service
+- `internal/measurements/adapters/outbound/grpc`: gRPC client adapter for the Measurement Service plus a circuit-breaker reader decorator
 - `internal/measurements/adapters/outbound/redis`: Redis-backed cache adapter, cached reader decorator, and deterministic cache keys
 - `internal/measurements/adapters/inbound/http`: REST API, middleware, health endpoints, and HTTP-specific request handling
 - `internal/platform`: shared configuration, logging, and request context utilities
@@ -42,6 +42,7 @@ internal/
       outbound/
         grpc/
           client.go
+          circuit_breaker.go
         redis/
           cache.go
           cached_reader.go
@@ -101,6 +102,7 @@ Operational behavior:
 
 - successful HTTP requests are logged with status, duration, request ID, correlation ID, and cache hit or miss
 - `x-request-id` and `x-correlation-id` are propagated to the Measurement Service over gRPC
+- downstream gRPC reads are protected by a circuit breaker before they reach the Redis cache decorator
 - `/readyz` actively checks both Redis and the Measurement Service before returning `200`
 - the outbound Redis decorator applies the five-minute read cache and writes cache hit or miss status into request context for access logging
 

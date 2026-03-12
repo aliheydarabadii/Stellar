@@ -62,8 +62,13 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
+	protectedMeasurementsReader, err := grpcadapter.NewCircuitBreakerReader(measurementsClient, logger)
+	if err != nil {
+		return fmt.Errorf("initialize measurements circuit breaker: %w", err)
+	}
+
 	measurementsReader, err := redisadapter.NewCachedReader(
-		measurementsClient,
+		protectedMeasurementsReader,
 		measurementsCache,
 		cfg.CacheTTL,
 		redisadapter.MeasurementsKey,

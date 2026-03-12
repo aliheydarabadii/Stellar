@@ -6,6 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/redis/go-redis/v9 v9.17.0
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
