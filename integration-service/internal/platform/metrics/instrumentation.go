@@ -4,8 +4,7 @@ import (
 	"context"
 	"time"
 
-	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -13,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func InstrumentTelemetrySource(next collecttelemetry.TelemetrySource, metrics *Metrics, tracer trace.Tracer) collecttelemetry.TelemetrySource {
+func InstrumentTelemetrySource(next telemetry.TelemetrySource, metrics *Metrics, tracer trace.Tracer) telemetry.TelemetrySource {
 	if next == nil {
 		return next
 	}
@@ -33,7 +32,7 @@ func InstrumentTelemetrySource(next collecttelemetry.TelemetrySource, metrics *M
 	}
 }
 
-func InstrumentMeasurementRepository(next collecttelemetry.MeasurementRepository, metrics *Metrics, tracer trace.Tracer) collecttelemetry.MeasurementRepository {
+func InstrumentMeasurementRepository(next telemetry.MeasurementRepository, metrics *Metrics, tracer trace.Tracer) telemetry.MeasurementRepository {
 	if next == nil {
 		return next
 	}
@@ -54,12 +53,12 @@ func InstrumentMeasurementRepository(next collecttelemetry.MeasurementRepository
 }
 
 type instrumentedTelemetrySource struct {
-	next    collecttelemetry.TelemetrySource
+	next    telemetry.TelemetrySource
 	metrics *Metrics
 	tracer  trace.Tracer
 }
 
-func (s instrumentedTelemetrySource) Read(ctx context.Context) (collecttelemetry.TelemetryReading, error) {
+func (s instrumentedTelemetrySource) Read(ctx context.Context) (telemetry.TelemetryReading, error) {
 	ctx, span := s.tracer.Start(ctx, "telemetry.source.read", trace.WithSpanKind(trace.SpanKindClient))
 	startedAt := time.Now()
 	reading, err := s.next.Read(ctx)
@@ -78,12 +77,12 @@ func (s instrumentedTelemetrySource) Read(ctx context.Context) (collecttelemetry
 }
 
 type instrumentedMeasurementRepository struct {
-	next    collecttelemetry.MeasurementRepository
+	next    telemetry.MeasurementRepository
 	metrics *Metrics
 	tracer  trace.Tracer
 }
 
-func (r instrumentedMeasurementRepository) Save(ctx context.Context, measurement domain.Measurement) error {
+func (r instrumentedMeasurementRepository) Save(ctx context.Context, measurement telemetry.Measurement) error {
 	ctx, span := r.tracer.Start(
 		ctx,
 		"telemetry.persistence.save",

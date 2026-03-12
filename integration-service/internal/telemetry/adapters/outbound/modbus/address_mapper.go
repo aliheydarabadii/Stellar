@@ -3,7 +3,7 @@ package modbus
 import (
 	"fmt"
 
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 const holdingRegisterBaseAddress uint16 = 40001
@@ -22,8 +22,8 @@ func NewAddressMapper() *AddressMapper {
 	return &AddressMapper{}
 }
 
-func (m *AddressMapper) Map(mapping domain.RegisterMapping) (readPlan, error) {
-	if mapping.RegisterType != domain.HoldingRegister {
+func (m *AddressMapper) Map(mapping telemetry.RegisterMapping) (readPlan, error) {
+	if mapping.RegisterType != telemetry.HoldingRegister {
 		return readPlan{}, fmt.Errorf("unsupported register type %q", mapping.RegisterType)
 	}
 

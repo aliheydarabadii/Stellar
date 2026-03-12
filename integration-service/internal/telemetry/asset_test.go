@@ -1,4 +1,4 @@
-package domain
+package telemetry
 
 import (
 	"testing"

@@ -1,4 +1,4 @@
-package collecttelemetry
+package application
 
 import "errors"
 

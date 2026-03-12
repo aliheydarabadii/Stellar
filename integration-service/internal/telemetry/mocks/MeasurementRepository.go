@@ -4,7 +4,7 @@ package mocks
 
 import (
 	context "context"
-	domain "stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -23,7 +23,7 @@ func (_m *MeasurementRepository) EXPECT() *MeasurementRepository_Expecter {
 }
 
 // Save provides a mock function with given fields: ctx, measurement
-func (_m *MeasurementRepository) Save(ctx context.Context, measurement domain.Measurement) error {
+func (_m *MeasurementRepository) Save(ctx context.Context, measurement telemetry.Measurement) error {
 	ret := _m.Called(ctx, measurement)
 
 	if len(ret) == 0 {
@@ -31,7 +31,7 @@ func (_m *MeasurementRepository) Save(ctx context.Context, measurement domain.Me
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, domain.Measurement) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, telemetry.Measurement) error); ok {
 		r0 = rf(ctx, measurement)
 	} else {
 		r0 = ret.Error(0)
@@ -47,14 +47,14 @@ type MeasurementRepository_Save_Call struct {
 
 // Save is a helper method to define mock.On call
 //   - ctx context.Context
-//   - measurement domain.Measurement
+//   - measurement telemetry.Measurement
 func (_e *MeasurementRepository_Expecter) Save(ctx interface{}, measurement interface{}) *MeasurementRepository_Save_Call {
 	return &MeasurementRepository_Save_Call{Call: _e.mock.On("Save", ctx, measurement)}
 }
 
-func (_c *MeasurementRepository_Save_Call) Run(run func(ctx context.Context, measurement domain.Measurement)) *MeasurementRepository_Save_Call {
+func (_c *MeasurementRepository_Save_Call) Run(run func(ctx context.Context, measurement telemetry.Measurement)) *MeasurementRepository_Save_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(domain.Measurement))
+		run(args[0].(context.Context), args[1].(telemetry.Measurement))
 	})
 	return _c
 }
@@ -64,7 +64,7 @@ func (_c *MeasurementRepository_Save_Call) Return(_a0 error) *MeasurementReposit
 	return _c
 }
 
-func (_c *MeasurementRepository_Save_Call) RunAndReturn(run func(context.Context, domain.Measurement) error) *MeasurementRepository_Save_Call {
+func (_c *MeasurementRepository_Save_Call) RunAndReturn(run func(context.Context, telemetry.Measurement) error) *MeasurementRepository_Save_Call {
 	_c.Call.Return(run)
 	return _c
 }

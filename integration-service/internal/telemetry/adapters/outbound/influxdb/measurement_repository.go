@@ -10,8 +10,7 @@ import (
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/influxdata/influxdb-client-go/v2/api/write"
-	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 const (
@@ -104,7 +103,7 @@ func DefaultConfig() Config {
 	}
 }
 
-func (r *MeasurementRepository) Save(ctx context.Context, measurement domain.Measurement) error {
+func (r *MeasurementRepository) Save(ctx context.Context, measurement telemetry.Measurement) error {
 	point := r.mapper.Map(measurement)
 
 	if r.writeMode == WriteModeBatch && r.batcher != nil {
@@ -135,7 +134,7 @@ func (r *MeasurementRepository) Close() error {
 	return r.closeErr
 }
 
-var _ collecttelemetry.MeasurementRepository = (*MeasurementRepository)(nil)
+var _ telemetry.MeasurementRepository = (*MeasurementRepository)(nil)
 
 func validateConfig(config Config) error {
 	switch {

@@ -14,8 +14,10 @@ This service is intentionally lightweight:
 
 The ownership model is:
 
-- `domain`: telemetry concepts and validation rules
-- `application/collect_telemetry`: command use case and application-owned ports
+- `internal/telemetry`: feature types and validation rules
+- `internal/telemetry/application`: `CollectTelemetryHandler` and the collection command DTO
+- `internal/telemetry/ports.go`: feature-level source and repository ports plus the raw `TelemetryReading` contract
+- `internal/telemetry/mocks`: mockery-style test doubles for feature ports
 - `adapters/inbound/worker`: the polling loop that triggers collection
 - `adapters/outbound/modbus`: Modbus TCP telemetry source
 - `adapters/outbound/influxdb`: InfluxDB measurement repository
@@ -33,18 +35,20 @@ cmd/
 
 internal/
   telemetry/
-    domain/
-      asset.go
-      register_mapping.go
-      measurement.go
-      errors.go
+    asset.go
+    register_mapping.go
+    measurement.go
+    errors.go
+    ports.go
+    mocks/
+      MeasurementRepository.go
+      TelemetrySource.go
 
     application/
-      collect_telemetry/
-        command.go
-        usecase.go
-        ports.go
-        errors.go
+      command.go
+      command_handler.go
+      command_handler_test.go
+      errors.go
 
     adapters/
       inbound/
@@ -78,7 +82,7 @@ internal/
 
 1. The worker wakes up on the configured poll interval.
 2. It creates `CollectTelemetry{CollectedAt: time.Now().UTC()}`.
-3. The application use case asks the Modbus source for raw telemetry.
+3. `CollectTelemetryHandler` asks the Modbus source for raw telemetry.
 4. The application builds a domain `Measurement`.
 5. Invalid measurements are rejected and skipped.
 6. Valid measurements are written to InfluxDB.

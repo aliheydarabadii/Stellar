@@ -1,4 +1,4 @@
-package domain
+package telemetry
 
 import "fmt"
 
@@ -38,7 +38,7 @@ func NewRegisterMapping(registerType RegisterType, setpointAddress, activePowerA
 func NewDefaultRegisterMapping() RegisterMapping {
 	mapping, err := NewRegisterMapping(HoldingRegister, 40100, 40101, true)
 	if err != nil {
-		panic("domain: default register mapping is invalid")
+		panic("telemetry: default register mapping is invalid")
 	}
 
 	return mapping

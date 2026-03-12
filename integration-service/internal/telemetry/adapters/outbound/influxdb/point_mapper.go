@@ -3,7 +3,7 @@ package influxdb
 import (
 	"time"
 
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 const assetMeasurementsName = "asset_measurements"
@@ -37,7 +37,7 @@ func NewPointMapperWithAssetType(assetType string) *PointMapper {
 	return &PointMapper{assetType: assetType}
 }
 
-func (m *PointMapper) Map(measurement domain.Measurement) Point {
+func (m *PointMapper) Map(measurement telemetry.Measurement) Point {
 
 	tags := PointTags{AssetID: measurement.AssetID.String()}
 

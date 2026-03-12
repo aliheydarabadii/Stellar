@@ -15,7 +15,7 @@ import (
 
 	healthplatform "stellar/internal/platform/health"
 	metricsplatform "stellar/internal/platform/metrics"
-	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
+	collecttelemetry "stellar/internal/telemetry/application"
 
 	"github.com/stretchr/testify/suite"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -52,15 +52,13 @@ func (s *TickerWorkerTestSuite) TestTickerWorkerStartCreatesCommandWithTimestamp
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	handler := &stubCollectTelemetryHandler{
-		handleFn: func(_ context.Context, cmd collecttelemetry.CollectTelemetry) error {
-			mu.Lock()
-			received = cmd
-			mu.Unlock()
-			cancel()
+	handler := func(_ context.Context, cmd collecttelemetry.CollectTelemetry) error {
+		mu.Lock()
+		received = cmd
+		mu.Unlock()
+		cancel()
 
-			return nil
-		},
+		return nil
 	}
 
 	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.metrics, s.readiness, nil)
@@ -95,15 +93,13 @@ func (s *TickerWorkerTestSuite) TestTickerWorkerStartSurvivesHandlerErrors() {
 	defer cancel()
 
 	callCh := make(chan struct{}, 4)
-	handler := &stubCollectTelemetryHandler{
-		handleFn: func(_ context.Context, _ collecttelemetry.CollectTelemetry) error {
-			callCh <- struct{}{}
-			if len(callCh) >= 2 {
-				cancel()
-			}
+	handler := func(_ context.Context, _ collecttelemetry.CollectTelemetry) error {
+		callCh <- struct{}{}
+		if len(callCh) >= 2 {
+			cancel()
+		}
 
-			return errors.Join(collecttelemetry.ErrTelemetrySource, errors.New("handler failed"))
-		},
+		return errors.Join(collecttelemetry.ErrTelemetrySource, errors.New("handler failed"))
 	}
 
 	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.metrics, s.readiness, nil)
@@ -127,11 +123,9 @@ func (s *TickerWorkerTestSuite) TestTickerWorkerStartCreatesTraceSpan() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	handler := &stubCollectTelemetryHandler{
-		handleFn: func(_ context.Context, _ collecttelemetry.CollectTelemetry) error {
-			cancel()
-			return nil
-		},
+	handler := func(_ context.Context, _ collecttelemetry.CollectTelemetry) error {
+		cancel()
+		return nil
 	}
 
 	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.metrics, s.readiness, tracer)
@@ -158,14 +152,6 @@ func (s *TickerWorkerTestSuite) runWorker(ctx context.Context, worker *TickerWor
 	case <-time.After(250 * time.Millisecond):
 		s.T().Fatal("timed out waiting for worker to stop")
 	}
-}
-
-type stubCollectTelemetryHandler struct {
-	handleFn func(ctx context.Context, cmd collecttelemetry.CollectTelemetry) error
-}
-
-func (h *stubCollectTelemetryHandler) Handle(ctx context.Context, cmd collecttelemetry.CollectTelemetry) error {
-	return h.handleFn(ctx, cmd)
 }
 
 func (s *TickerWorkerTestSuite) scrapeMetrics() string {

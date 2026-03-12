@@ -1,5 +1,5 @@
-// Package domain defines the telemetry bounded context domain model and rules.
-package domain
+// Package telemetry defines the telemetry feature model and rules.
+package telemetry
 
 import "fmt"
 
@@ -46,7 +46,7 @@ func NewDefaultAsset() Asset {
 		NewDefaultRegisterMapping(),
 	)
 	if err != nil {
-		panic("domain: default asset configuration is invalid")
+		panic("telemetry: default asset configuration is invalid")
 	}
 
 	return asset

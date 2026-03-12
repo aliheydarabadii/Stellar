@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 type AddressMapperTestSuite struct {
@@ -16,7 +16,7 @@ func TestAddressMapperTestSuite(t *testing.T) {
 }
 
 func (s *AddressMapperTestSuite) TestAddressMapperMap() {
-	mapping, err := domain.NewRegisterMapping(domain.HoldingRegister, 40100, 40101, true)
+	mapping, err := telemetry.NewRegisterMapping(telemetry.HoldingRegister, 40100, 40101, true)
 	s.Require().NoError(err)
 
 	mapper := NewAddressMapper()

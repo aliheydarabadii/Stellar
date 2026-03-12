@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 type SourceTestSuite struct {
 	suite.Suite
-	validMapping domain.RegisterMapping
+	validMapping telemetry.RegisterMapping
 }
 
 func TestSourceTestSuite(t *testing.T) {
@@ -22,7 +22,7 @@ func TestSourceTestSuite(t *testing.T) {
 }
 
 func (s *SourceTestSuite) SetupTest() {
-	validMapping, err := domain.NewRegisterMapping(domain.HoldingRegister, 40100, 40101, true)
+	validMapping, err := telemetry.NewRegisterMapping(telemetry.HoldingRegister, 40100, 40101, true)
 	s.Require().NoError(err)
 	s.validMapping = validMapping
 }
@@ -66,7 +66,7 @@ func (s *SourceTestSuite) TestNewSource() {
 				Host:   "127.0.0.1",
 				Port:   502,
 				UnitID: 1,
-				RegisterMapping: domain.RegisterMapping{
+				RegisterMapping: telemetry.RegisterMapping{
 					SetpointAddress:    40100,
 					ActivePowerAddress: 40101,
 					SignedValues:       true,
@@ -80,8 +80,8 @@ func (s *SourceTestSuite) TestNewSource() {
 				Host:   "127.0.0.1",
 				Port:   502,
 				UnitID: 1,
-				RegisterMapping: domain.RegisterMapping{
-					RegisterType:       domain.HoldingRegister,
+				RegisterMapping: telemetry.RegisterMapping{
+					RegisterType:       telemetry.HoldingRegister,
 					ActivePowerAddress: 40101,
 					SignedValues:       true,
 				},
@@ -94,8 +94,8 @@ func (s *SourceTestSuite) TestNewSource() {
 				Host:   "127.0.0.1",
 				Port:   502,
 				UnitID: 1,
-				RegisterMapping: domain.RegisterMapping{
-					RegisterType:    domain.HoldingRegister,
+				RegisterMapping: telemetry.RegisterMapping{
+					RegisterType:    telemetry.HoldingRegister,
 					SetpointAddress: 40100,
 					SignedValues:    true,
 				},
@@ -108,8 +108,8 @@ func (s *SourceTestSuite) TestNewSource() {
 				Host:   "127.0.0.1",
 				Port:   502,
 				UnitID: 1,
-				RegisterMapping: domain.RegisterMapping{
-					RegisterType:       domain.RegisterType("input"),
+				RegisterMapping: telemetry.RegisterMapping{
+					RegisterType:       telemetry.RegisterType("input"),
 					SetpointAddress:    40100,
 					ActivePowerAddress: 40101,
 					SignedValues:       true,

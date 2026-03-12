@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 type MeasurementRepositoryTestSuite struct {
@@ -24,7 +24,7 @@ func TestMeasurementRepositoryTestSuite(t *testing.T) {
 
 func (s *MeasurementRepositoryTestSuite) TestMeasurementRepositorySave() {
 	collectedAt := time.Date(2026, time.March, 10, 10, 0, 0, 123, time.UTC)
-	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 100, 55, collectedAt)
+	measurement, err := telemetry.NewMeasurement(telemetry.DefaultAssetID, 100, 55, collectedAt)
 	s.Require().NoError(err)
 
 	var (
@@ -205,7 +205,7 @@ func (s *MeasurementRepositoryTestSuite) TestMeasurementRepositorySaveReturnsWri
 	}, NewPointMapper())
 	s.Require().NoError(err)
 
-	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 100, 55, time.Now().UTC())
+	measurement, err := telemetry.NewMeasurement(telemetry.DefaultAssetID, 100, 55, time.Now().UTC())
 	s.Require().NoError(err)
 
 	err = repository.Save(context.Background(), measurement)
@@ -240,7 +240,7 @@ func (s *MeasurementRepositoryTestSuite) TestMeasurementRepositoryBatchModeSaveF
 		s.Require().NoError(repository.Close())
 	}()
 
-	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 100, 55, time.Now().UTC())
+	measurement, err := telemetry.NewMeasurement(telemetry.DefaultAssetID, 100, 55, time.Now().UTC())
 	s.Require().NoError(err)
 
 	s.Require().NoError(repository.Save(context.Background(), measurement))
@@ -272,7 +272,7 @@ func (s *MeasurementRepositoryTestSuite) TestMeasurementRepositoryBatchModeClose
 	}, NewPointMapper())
 	s.Require().NoError(err)
 
-	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 100, 55, time.Now().UTC())
+	measurement, err := telemetry.NewMeasurement(telemetry.DefaultAssetID, 100, 55, time.Now().UTC())
 	s.Require().NoError(err)
 
 	saveErrCh := make(chan error, 1)

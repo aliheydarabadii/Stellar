@@ -7,27 +7,46 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	tracingplatform "stellar/internal/platform/tracing"
-	influxdbadapter "stellar/internal/telemetry/adapters/outbound/influxdb"
-	modbusadapter "stellar/internal/telemetry/adapters/outbound/modbus"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 const (
-	defaultInfluxTimeout  = 5 * time.Second
-	minReadinessStaleness = 5 * time.Second
-	readinessMultiplier   = 3
+	defaultInfluxTimeout    = 5 * time.Second
+	minReadinessStaleness   = 5 * time.Second
+	readinessMultiplier     = 3
+	influxWriteModeBlocking = "blocking"
+	influxWriteModeBatch    = "batch"
 )
 
 type Config struct {
 	LogLevel            string
-	AssetID             domain.AssetID
-	AssetType           domain.AssetType
+	AssetID             telemetry.AssetID
+	AssetType           telemetry.AssetType
 	PollInterval        time.Duration
 	ReadinessStaleAfter time.Duration
 	HTTPPort            int
-	Modbus              modbusadapter.Config
-	Influx              influxdbadapter.Config
+	Modbus              ModbusConfig
+	Influx              InfluxConfig
 	Tracing             tracingplatform.TracingConfig
+}
+
+type ModbusConfig struct {
+	Host            string
+	Port            uint16
+	UnitID          uint8
+	RegisterMapping telemetry.RegisterMapping
+}
+
+type InfluxConfig struct {
+	BaseURL       string
+	Org           string
+	Bucket        string
+	Token         string
+	Timeout       time.Duration
+	LogLevel      uint
+	WriteMode     string
+	BatchSize     uint
+	FlushInterval time.Duration
 }
 
 type envConfig struct {
@@ -75,13 +94,12 @@ func Load() (Config, error) {
 		return Config{}, errors.New("INFLUX_FLUSH_INTERVAL must not be negative")
 	}
 
-	influxWriteMode, err := parseInfluxWriteMode(raw.InfluxWriteMode)
-	if err != nil {
+	if err := validateInfluxWriteMode(raw.InfluxWriteMode); err != nil {
 		return Config{}, err
 	}
 
-	registerMapping, err := domain.NewRegisterMapping(
-		domain.RegisterType(raw.ModbusRegisterType),
+	registerMapping, err := telemetry.NewRegisterMapping(
+		telemetry.RegisterType(raw.ModbusRegisterType),
 		raw.ModbusSetpointAddress,
 		raw.ModbusActivePowerAddress,
 		raw.ModbusSignedValues,
@@ -92,25 +110,25 @@ func Load() (Config, error) {
 
 	return Config{
 		LogLevel:            raw.LogLevel,
-		AssetID:             domain.AssetID(raw.AssetID),
-		AssetType:           domain.AssetType(raw.AssetType),
+		AssetID:             telemetry.AssetID(raw.AssetID),
+		AssetType:           telemetry.AssetType(raw.AssetType),
 		PollInterval:        raw.PollInterval,
 		ReadinessStaleAfter: readinessStaleness(raw.PollInterval),
 		HTTPPort:            raw.HTTPPort,
-		Modbus: modbusadapter.Config{
+		Modbus: ModbusConfig{
 			Host:            raw.ModbusHost,
 			Port:            raw.ModbusPort,
 			UnitID:          raw.ModbusUnitID,
 			RegisterMapping: registerMapping,
 		},
-		Influx: influxdbadapter.Config{
+		Influx: InfluxConfig{
 			BaseURL:       raw.InfluxURL,
 			Org:           raw.InfluxOrg,
 			Bucket:        raw.InfluxBucket,
 			Token:         raw.InfluxToken,
 			Timeout:       defaultInfluxTimeout,
 			LogLevel:      raw.InfluxLogLevel,
-			WriteMode:     influxWriteMode,
+			WriteMode:     raw.InfluxWriteMode,
 			BatchSize:     raw.InfluxBatchSize,
 			FlushInterval: raw.InfluxFlushInterval,
 		},
@@ -123,13 +141,12 @@ func Load() (Config, error) {
 	}, nil
 }
 
-func parseInfluxWriteMode(value string) (influxdbadapter.WriteMode, error) {
-	mode := influxdbadapter.WriteMode(value)
-	switch mode {
-	case influxdbadapter.WriteModeBlocking, influxdbadapter.WriteModeBatch:
-		return mode, nil
+func validateInfluxWriteMode(value string) error {
+	switch value {
+	case influxWriteModeBlocking, influxWriteModeBatch:
+		return nil
 	default:
-		return "", fmt.Errorf("INFLUX_WRITE_MODE must be one of %q or %q", influxdbadapter.WriteModeBlocking, influxdbadapter.WriteModeBatch)
+		return fmt.Errorf("INFLUX_WRITE_MODE must be one of %q or %q", influxWriteModeBlocking, influxWriteModeBatch)
 	}
 }
 

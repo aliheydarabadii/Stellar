@@ -10,8 +10,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
-	"stellar/internal/telemetry/domain"
+	telemetry "stellar/internal/telemetry"
 )
 
 type InstrumentationTestSuite struct {
@@ -32,7 +31,7 @@ func (s *InstrumentationTestSuite) SetupTest() {
 
 func (s *InstrumentationTestSuite) TestInstrumentTelemetrySourceObservesReadDuration() {
 	source := InstrumentTelemetrySource(stubTelemetrySource{
-		reading: collecttelemetry.TelemetryReading{
+		reading: telemetry.TelemetryReading{
 			Setpoint:    100,
 			ActivePower: 50,
 		},
@@ -51,7 +50,7 @@ func (s *InstrumentationTestSuite) TestInstrumentTelemetrySourceObservesReadDura
 func (s *InstrumentationTestSuite) TestInstrumentMeasurementRepositoryObservesPersistenceDuration() {
 	repository := InstrumentMeasurementRepository(stubMeasurementRepository{}, s.metrics, s.tracer)
 
-	measurement, err := domain.NewMeasurement(domain.DefaultAssetID, 100, 50, time.Now().UTC())
+	measurement, err := telemetry.NewMeasurement(telemetry.DefaultAssetID, 100, 50, time.Now().UTC())
 	s.Require().NoError(err)
 
 	s.Require().NoError(repository.Save(context.Background(), measurement))
@@ -63,11 +62,11 @@ func (s *InstrumentationTestSuite) TestInstrumentMeasurementRepositoryObservesPe
 }
 
 type stubTelemetrySource struct {
-	reading collecttelemetry.TelemetryReading
+	reading telemetry.TelemetryReading
 	err     error
 }
 
-func (s stubTelemetrySource) Read(_ context.Context) (collecttelemetry.TelemetryReading, error) {
+func (s stubTelemetrySource) Read(_ context.Context) (telemetry.TelemetryReading, error) {
 	return s.reading, s.err
 }
 
@@ -75,7 +74,7 @@ type stubMeasurementRepository struct {
 	err error
 }
 
-func (r stubMeasurementRepository) Save(_ context.Context, _ domain.Measurement) error {
+func (r stubMeasurementRepository) Save(_ context.Context, _ telemetry.Measurement) error {
 	return r.err
 }
 

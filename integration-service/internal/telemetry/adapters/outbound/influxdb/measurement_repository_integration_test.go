@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	telemetry "stellar/internal/telemetry"
 	influxdb "stellar/internal/telemetry/adapters/outbound/influxdb"
-	"stellar/internal/telemetry/domain"
 )
 
 const (
@@ -103,14 +103,14 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestSavePersistsMeasurementT
 		Token:     testInfluxToken,
 		Timeout:   10 * time.Second,
 		WriteMode: influxdb.WriteModeBlocking,
-	}, influxdb.NewPointMapperWithAssetType(string(domain.SolarPanelType)))
+	}, influxdb.NewPointMapperWithAssetType(string(telemetry.SolarPanelType)))
 	s.Require().NoError(err)
 	s.T().Cleanup(func() {
 		s.Require().NoError(repository.Close())
 	})
 
 	collectedAt := time.Date(2026, time.March, 10, 12, 0, 0, 123456789, time.UTC)
-	measurement, err := domain.NewMeasurement(domain.AssetID("integration-asset-1"), 100, 55, collectedAt)
+	measurement, err := telemetry.NewMeasurement(telemetry.AssetID("integration-asset-1"), 100, 55, collectedAt)
 	s.Require().NoError(err)
 
 	ctx := context.Background()
@@ -128,7 +128,7 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestSavePersistsMeasurementT
 	record := persisted[0]
 	s.Assert().Equal("asset_measurements", record.MeasurementName)
 	s.Assert().Equal(measurement.AssetID.String(), record.AssetID)
-	s.Assert().Equal(string(domain.SolarPanelType), record.AssetType)
+	s.Assert().Equal(string(telemetry.SolarPanelType), record.AssetType)
 	s.Assert().Equal(measurement.Setpoint, record.Setpoint)
 	s.Assert().Equal(measurement.ActivePower, record.ActivePower)
 	s.Assert().Equal(measurement.CollectedAt, record.CollectedAt)
@@ -144,14 +144,14 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModeSavePersistsMea
 		WriteMode:     influxdb.WriteModeBatch,
 		BatchSize:     10,
 		FlushInterval: 25 * time.Millisecond,
-	}, influxdb.NewPointMapperWithAssetType(string(domain.SolarPanelType)))
+	}, influxdb.NewPointMapperWithAssetType(string(telemetry.SolarPanelType)))
 	s.Require().NoError(err)
 	s.T().Cleanup(func() {
 		s.Require().NoError(repository.Close())
 	})
 
 	collectedAt := time.Date(2026, time.March, 10, 12, 1, 0, 987654321, time.UTC)
-	measurement, err := domain.NewMeasurement(domain.AssetID("integration-asset-batch-1"), 120, 65, collectedAt)
+	measurement, err := telemetry.NewMeasurement(telemetry.AssetID("integration-asset-batch-1"), 120, 65, collectedAt)
 	s.Require().NoError(err)
 
 	ctx := context.Background()
@@ -164,7 +164,7 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModeSavePersistsMea
 	record := persisted[0]
 	s.Assert().Equal("asset_measurements", record.MeasurementName)
 	s.Assert().Equal(measurement.AssetID.String(), record.AssetID)
-	s.Assert().Equal(string(domain.SolarPanelType), record.AssetType)
+	s.Assert().Equal(string(telemetry.SolarPanelType), record.AssetType)
 	s.Assert().Equal(measurement.Setpoint, record.Setpoint)
 	s.Assert().Equal(measurement.ActivePower, record.ActivePower)
 	s.Assert().Equal(measurement.CollectedAt, record.CollectedAt)
@@ -180,14 +180,14 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModePersistsMultipl
 		WriteMode:     influxdb.WriteModeBatch,
 		BatchSize:     3,
 		FlushInterval: time.Hour,
-	}, influxdb.NewPointMapperWithAssetType(string(domain.SolarPanelType)))
+	}, influxdb.NewPointMapperWithAssetType(string(telemetry.SolarPanelType)))
 	s.Require().NoError(err)
 	s.T().Cleanup(func() {
 		s.Require().NoError(repository.Close())
 	})
 
 	baseCollectedAt := time.Date(2026, time.March, 10, 12, 2, 0, 0, time.UTC)
-	measurements := []domain.Measurement{
+	measurements := []telemetry.Measurement{
 		s.newMeasurement("integration-batch-asset-1", 130, 70, baseCollectedAt),
 		s.newMeasurement("integration-batch-asset-2", 140, 80, baseCollectedAt.Add(100*time.Millisecond)),
 		s.newMeasurement("integration-batch-asset-3", 150, 90, baseCollectedAt.Add(200*time.Millisecond)),
@@ -197,7 +197,7 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModePersistsMultipl
 	errCh := make(chan error, len(measurements))
 	for _, measurement := range measurements {
 		wg.Add(1)
-		go func(measurement domain.Measurement) {
+		go func(measurement telemetry.Measurement) {
 			defer wg.Done()
 			errCh <- repository.Save(context.Background(), measurement)
 		}(measurement)
@@ -227,7 +227,7 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModePersistsMultipl
 
 	s.Require().Len(persisted, len(measurements))
 
-	expected := make(map[string]domain.Measurement, len(measurements))
+	expected := make(map[string]telemetry.Measurement, len(measurements))
 	for _, measurement := range measurements {
 		expected[measurement.AssetID.String()] = measurement
 	}
@@ -237,7 +237,7 @@ func (s *MeasurementRepositoryIntegrationTestSuite) TestBatchModePersistsMultipl
 		s.Require().True(ok, "unexpected asset id %s", record.AssetID)
 
 		s.Equal("asset_measurements", record.MeasurementName)
-		s.Equal(string(domain.SolarPanelType), record.AssetType)
+		s.Equal(string(telemetry.SolarPanelType), record.AssetType)
 		s.Equal(want.Setpoint, record.Setpoint)
 		s.Equal(want.ActivePower, record.ActivePower)
 		s.Equal(want.CollectedAt, record.CollectedAt)
@@ -338,8 +338,8 @@ from(bucket: %q)
 	return measurements, nil
 }
 
-func (s *MeasurementRepositoryIntegrationTestSuite) newMeasurement(assetID string, setpoint, activePower float64, collectedAt time.Time) domain.Measurement {
-	measurement, err := domain.NewMeasurement(domain.AssetID(assetID), setpoint, activePower, collectedAt)
+func (s *MeasurementRepositoryIntegrationTestSuite) newMeasurement(assetID string, setpoint, activePower float64, collectedAt time.Time) telemetry.Measurement {
+	measurement, err := telemetry.NewMeasurement(telemetry.AssetID(assetID), setpoint, activePower, collectedAt)
 	s.Require().NoError(err)
 
 	return measurement

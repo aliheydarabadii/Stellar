@@ -21,7 +21,7 @@ import (
 	workeradapter "stellar/internal/telemetry/adapters/inbound/worker"
 	influxdbadapter "stellar/internal/telemetry/adapters/outbound/influxdb"
 	modbusadapter "stellar/internal/telemetry/adapters/outbound/modbus"
-	collecttelemetry "stellar/internal/telemetry/application/collect_telemetry"
+	collecttelemetry "stellar/internal/telemetry/application"
 )
 
 const (
@@ -78,14 +78,19 @@ func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (r
 		return fmt.Errorf("create readiness: %w", err)
 	}
 
-	source, err := modbusadapter.NewSource(cfg.Modbus, addressMapper, decoder)
+	modbusConfig := buildModbusConfig(cfg)
+	source, err := modbusadapter.NewSource(modbusConfig, addressMapper, decoder)
 	if err != nil {
 		return fmt.Errorf("create modbus source: %w", err)
 	}
 	instrumentedSource := metricsplatform.InstrumentTelemetrySource(source, metrics, tracer)
 
 	pointMapper := influxdbadapter.NewPointMapperWithAssetType(string(cfg.AssetType))
-	repository, err := influxdbadapter.NewMeasurementRepositoryWithConfig(cfg.Influx, pointMapper)
+	influxConfig, err := buildInfluxConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("build influxdb config: %w", err)
+	}
+	repository, err := influxdbadapter.NewMeasurementRepositoryWithConfig(influxConfig, pointMapper)
 	if err != nil {
 		return fmt.Errorf("create influxdb repository: %w", err)
 	}
@@ -101,12 +106,12 @@ func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (r
 	}()
 	instrumentedRepository := metricsplatform.InstrumentMeasurementRepository(repository, metrics, tracer)
 
-	collectTelemetry, err := collecttelemetry.NewUseCase(cfg.AssetID, instrumentedSource, instrumentedRepository)
+	collectTelemetry, err := collecttelemetry.NewCollectTelemetryHandler(cfg.AssetID, instrumentedSource, instrumentedRepository)
 	if err != nil {
-		return fmt.Errorf("create collect telemetry use case: %w", err)
+		return fmt.Errorf("create collect telemetry handler: %w", err)
 	}
 
-	worker, err := workeradapter.NewRunner(cfg.PollInterval, collectTelemetry, logger, metrics, readiness, tracer)
+	worker, err := workeradapter.NewRunner(cfg.PollInterval, collectTelemetry.Handle, logger, metrics, readiness, tracer)
 	if err != nil {
 		return fmt.Errorf("create worker: %w", err)
 	}
@@ -120,13 +125,13 @@ func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (r
 		"service starting",
 		"asset_id", cfg.AssetID.String(),
 		"asset_type", string(cfg.AssetType),
-		"modbus_host", cfg.Modbus.Host,
-		"modbus_port", cfg.Modbus.Port,
+		"modbus_host", modbusConfig.Host,
+		"modbus_port", modbusConfig.Port,
 		"http_port", cfg.HTTPPort,
 		"poll_interval", cfg.PollInterval.String(),
-		"influx_url", cfg.Influx.BaseURL,
-		"influx_log_level", cfg.Influx.LogLevel,
-		"influx_write_mode", string(cfg.Influx.WriteMode),
+		"influx_url", influxConfig.BaseURL,
+		"influx_log_level", influxConfig.LogLevel,
+		"influx_write_mode", string(influxConfig.WriteMode),
 		"tracing_enabled", cfg.Tracing.Enabled,
 		"tracing_endpoint", cfg.Tracing.Endpoint,
 	)
@@ -182,4 +187,42 @@ func runComponents(ctx context.Context, logger *slog.Logger, httpServer healthpl
 
 func httpAddress(port int) string {
 	return ":" + strconv.Itoa(port)
+}
+
+func buildModbusConfig(cfg configplatform.Config) modbusadapter.Config {
+	return modbusadapter.Config{
+		Host:            cfg.Modbus.Host,
+		Port:            cfg.Modbus.Port,
+		UnitID:          cfg.Modbus.UnitID,
+		RegisterMapping: cfg.Modbus.RegisterMapping,
+	}
+}
+
+func buildInfluxConfig(cfg configplatform.Config) (influxdbadapter.Config, error) {
+	writeMode, err := parseInfluxWriteMode(cfg.Influx.WriteMode)
+	if err != nil {
+		return influxdbadapter.Config{}, err
+	}
+
+	return influxdbadapter.Config{
+		BaseURL:       cfg.Influx.BaseURL,
+		Org:           cfg.Influx.Org,
+		Bucket:        cfg.Influx.Bucket,
+		Token:         cfg.Influx.Token,
+		Timeout:       cfg.Influx.Timeout,
+		LogLevel:      cfg.Influx.LogLevel,
+		WriteMode:     writeMode,
+		BatchSize:     cfg.Influx.BatchSize,
+		FlushInterval: cfg.Influx.FlushInterval,
+	}, nil
+}
+
+func parseInfluxWriteMode(value string) (influxdbadapter.WriteMode, error) {
+	mode := influxdbadapter.WriteMode(value)
+	switch mode {
+	case influxdbadapter.WriteModeBlocking, influxdbadapter.WriteModeBatch:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("INFLUX_WRITE_MODE must be one of %q or %q", influxdbadapter.WriteModeBlocking, influxdbadapter.WriteModeBatch)
+	}
 }
