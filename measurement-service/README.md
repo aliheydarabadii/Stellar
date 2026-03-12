@@ -4,7 +4,7 @@ The Measurement Service is the query-side microservice for historical asset meas
 
 ## Architecture
 
-The service follows a pragmatic DDD-lite, CQRS, and Clean Architecture layout inspired by "Go with the Domain":
+The service follows a clean-architecture-inspired, CQRS query-side layout with pragmatic, lightweight DDD boundaries:
 
 - `internal/measurements/domain`: measurement entities returned by the query side
 - `internal/measurements/application/get_measurements`: query DTO, ports, errors, and use case

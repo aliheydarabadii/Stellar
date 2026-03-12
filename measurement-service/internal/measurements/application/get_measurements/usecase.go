@@ -9,6 +9,8 @@ import (
 	"stellar/internal/measurements/domain"
 )
 
+var _ QueryHandler = UseCase{}
+
 type UseCase struct {
 	readModel     MeasurementsReadModel
 	maxQueryRange time.Duration

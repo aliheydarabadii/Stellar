@@ -18,6 +18,8 @@ import (
 	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
+var _ measurementsv1.MeasurementServiceServer = (*Server)(nil)
+
 type TransportConfig struct {
 	ConnectionTimeout   time.Duration
 	MaxRecvMsgSizeBytes int

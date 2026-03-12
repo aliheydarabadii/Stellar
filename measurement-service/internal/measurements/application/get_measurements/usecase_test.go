@@ -108,11 +108,11 @@ func (s *UseCaseSuite) TestHandleAllowsRangeAtConfiguredLimit() {
 }
 
 func (s *UseCaseSuite) TestHandleReturnsPoints() {
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().In(time.FixedZone("offset", 2*60*60)).Truncate(time.Second)
 	readModel := &fakeMeasurementsReadModel{
 		points: []domain.MeasurementPoint{
 			{
-				Timestamp:   now,
+				Timestamp:   now.UTC(),
 				Setpoint:    10,
 				ActivePower: 9.5,
 			},
@@ -132,6 +132,10 @@ func (s *UseCaseSuite) TestHandleReturnsPoints() {
 	s.Equal("asset-1", got.AssetID)
 	s.Len(got.Points, 1)
 	s.Equal("asset-1", readModel.assetID)
+	s.Equal(time.UTC, readModel.from.Location())
+	s.Equal(time.UTC, readModel.to.Location())
+	s.True(readModel.from.Equal(now.UTC()))
+	s.True(readModel.to.Equal(now.Add(time.Second).UTC()))
 }
 
 func (s *UseCaseSuite) TestHandleReturnsReadModelError() {
