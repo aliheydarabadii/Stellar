@@ -38,7 +38,7 @@ func NewHandler(queryHandler getmeasurements.QueryHandler, logger *slog.Logger, 
 			return
 		}
 
-		result, err := queryHandler.Handle(ctx, getmeasurements.Query{
+		series, err := queryHandler.Handle(ctx, getmeasurements.Query{
 			AssetID: r.PathValue("asset_id"),
 			From:    from,
 			To:      to,
@@ -48,8 +48,11 @@ func NewHandler(queryHandler getmeasurements.QueryHandler, logger *slog.Logger, 
 			return
 		}
 
-		requestctx.SetCacheStatus(ctx, string(result.CacheStatus))
-		writeJSON(w, stdhttp.StatusOK, result.Series)
+		if requestctx.CacheStatusFromContext(ctx) == "" {
+			requestctx.SetCacheStatus(ctx, requestctx.CacheStatusNotApplicable)
+		}
+
+		writeJSON(w, stdhttp.StatusOK, series)
 	})
 
 	handler := stdhttp.Handler(mux)

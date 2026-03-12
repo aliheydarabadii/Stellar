@@ -226,6 +226,23 @@ func (s *HTTPSuite) TestHandlerAccessLogIncludesCacheHit() {
 	s.Contains(logs.String(), `"cache_status":"hit"`)
 }
 
+func (s *HTTPSuite) TestHandlerDefaultsCacheStatusWhenQueryHandlerDoesNotSetIt() {
+	base := s.baseTime()
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(io.MultiWriter(io.Discard, logs), nil))
+	handler := NewHandler(fakeQueryHandler{
+		series: domain.MeasurementSeries{AssetID: "asset-1"},
+	}, logger, 0)
+
+	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	s.Equal(stdhttp.StatusOK, rec.Code)
+	s.Contains(logs.String(), `"cache_status":"not_applicable"`)
+}
+
 func (s *HTTPSuite) TestHandlerCachesIdenticalRequestsWithinTTL() {
 	redisServer := miniredis.RunT(s.T())
 	cache, err := redisadapter.NewCache(context.Background(), redisServer.Addr(), "", "", 0)
@@ -323,21 +340,39 @@ func (s *HTTPSuite) baseTime() time.Time {
 	return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 }
 
-func newTestHandler(t *testing.T, client getmeasurements.MeasurementsClient, cache getmeasurements.MeasurementsCache, logger *slog.Logger) stdhttp.Handler {
+func newTestHandler(t *testing.T, reader getmeasurements.MeasurementsReader, cache getmeasurements.MeasurementsCache, logger *slog.Logger) stdhttp.Handler {
 	t.Helper()
 
-	useCase, err := getmeasurements.NewUseCase(
-		client,
+	cachedReader, err := redisadapter.NewCachedReader(
+		reader,
 		cache,
 		5*time.Minute,
-		func(assetID string, from, to time.Time) string {
-			return assetID + "|" + from.Format(time.RFC3339Nano) + "|" + to.Format(time.RFC3339Nano)
-		},
+		redisadapter.MeasurementsKey,
 		nil,
 	)
 	require.NoError(t, err)
 
+	useCase, err := getmeasurements.NewUseCase(cachedReader)
+	require.NoError(t, err)
+
 	return NewHandler(useCase, logger, 0)
+}
+
+type fakeQueryHandler struct {
+	series domain.MeasurementSeries
+	err    error
+}
+
+func (h fakeQueryHandler) Handle(_ context.Context, qry getmeasurements.Query) (domain.MeasurementSeries, error) {
+	if h.err != nil {
+		return domain.MeasurementSeries{}, h.err
+	}
+
+	if h.series.AssetID == "" {
+		h.series.AssetID = qry.AssetID
+	}
+
+	return h.series, nil
 }
 
 type fakeMeasurementsClient struct {

@@ -18,74 +18,67 @@ func TestUseCaseSuite(t *testing.T) {
 	suite.Run(t, new(UseCaseSuite))
 }
 
-func (s *UseCaseSuite) TestHandleReturnsCacheHit() {
-	base := s.baseTime()
-	cache := &stubCache{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
-		found:  true,
-	}
-	client := &stubClient{}
+func (s *UseCaseSuite) TestNewUseCaseRequiresReader() {
+	_, err := NewUseCase(nil)
 
-	useCase := s.newUseCase(client, cache, nil)
-	result, err := useCase.Handle(context.Background(), Query{
-		AssetID: "asset-1",
-		From:    base,
-		To:      base.Add(time.Minute),
-	})
-
-	s.Require().NoError(err)
-	s.Equal(CacheStatusHit, result.CacheStatus)
-	s.Equal("asset-1", result.Series.AssetID)
-	s.Equal(0, client.calls)
+	s.ErrorIs(err, ErrMeasurementsReaderRequired)
 }
 
-func (s *UseCaseSuite) TestHandleReturnsCacheMissAndStoresFetchedSeries() {
-	base := s.baseTime()
-	cache := &stubCache{}
-	client := &stubClient{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
-	}
+func (s *UseCaseSuite) TestHandleRejectsMissingAssetID() {
+	useCase := s.newUseCase(&stubReader{})
 
-	useCase := s.newUseCase(client, cache, nil)
-	result, err := useCase.Handle(context.Background(), Query{
-		AssetID: "asset-1",
-		From:    base,
-		To:      base.Add(time.Minute),
+	_, err := useCase.Handle(context.Background(), Query{
+		AssetID: " ",
+		From:    s.baseTime(),
+		To:      s.baseTime().Add(time.Minute),
 	})
 
-	s.Require().NoError(err)
-	s.Equal(CacheStatusMiss, result.CacheStatus)
-	s.Equal(1, client.calls)
-	s.Equal(1, cache.setCalls)
-	s.Equal("asset-1", cache.series.AssetID)
+	s.ErrorIs(err, ErrAssetIDRequired)
 }
 
-func (s *UseCaseSuite) TestHandleBypassesCacheWhenGetFails() {
+func (s *UseCaseSuite) TestHandleRejectsInvalidRange() {
+	useCase := s.newUseCase(&stubReader{})
 	base := s.baseTime()
-	cache := &stubCache{getErr: errors.New("redis unavailable")}
-	client := &stubClient{
+
+	_, err := useCase.Handle(context.Background(), Query{
+		AssetID: "asset-1",
+		From:    base.Add(time.Minute),
+		To:      base,
+	})
+
+	s.ErrorIs(err, ErrInvalidTimeRange)
+}
+
+func (s *UseCaseSuite) TestHandleDelegatesToReaderWithUTCTimestamps() {
+	location := time.FixedZone("UTC+02", 2*60*60)
+	from := time.Date(2026, 3, 10, 14, 0, 0, 0, location)
+	to := from.Add(time.Minute)
+	reader := &stubReader{
 		series: domain.MeasurementSeries{AssetID: "asset-1"},
 	}
-	observer := &stubObserver{}
+	useCase := s.newUseCase(reader)
 
-	useCase := s.newUseCase(client, cache, observer)
-	result, err := useCase.Handle(context.Background(), Query{
-		AssetID: "asset-1",
-		From:    base,
-		To:      base.Add(time.Minute),
+	series, err := useCase.Handle(context.Background(), Query{
+		AssetID: " asset-1 ",
+		From:    from,
+		To:      to,
 	})
 
 	s.Require().NoError(err)
-	s.Equal(CacheStatusBypass, result.CacheStatus)
-	s.Len(observer.operations, 1)
-	s.Equal("get", observer.operations[0])
+	s.Equal("asset-1", series.AssetID)
+	s.Equal(1, reader.calls)
+	s.Equal("asset-1", reader.assetID)
+	s.Equal(time.UTC, reader.from.Location())
+	s.Equal(time.UTC, reader.to.Location())
+	s.True(reader.from.Equal(from.UTC()))
+	s.True(reader.to.Equal(to.UTC()))
 }
 
 func (s *UseCaseSuite) TestHandleMapsMeasurementServiceUnavailable() {
 	base := s.baseTime()
-	useCase := s.newUseCase(&stubClient{
+	useCase := s.newUseCase(&stubReader{
 		err: stubUnavailableError{cause: errors.New("rpc unavailable")},
-	}, &stubCache{}, nil)
+	})
 
 	_, err := useCase.Handle(context.Background(), Query{
 		AssetID: "asset-1",
@@ -98,9 +91,9 @@ func (s *UseCaseSuite) TestHandleMapsMeasurementServiceUnavailable() {
 
 func (s *UseCaseSuite) TestHandleMapsDownstreamInvalidRequest() {
 	base := s.baseTime()
-	useCase := s.newUseCase(&stubClient{
+	useCase := s.newUseCase(&stubReader{
 		err: stubInvalidRequestError{message: "window too large"},
-	}, &stubCache{}, nil)
+	})
 
 	_, err := useCase.Handle(context.Background(), Query{
 		AssetID: "asset-1",
@@ -112,18 +105,10 @@ func (s *UseCaseSuite) TestHandleMapsDownstreamInvalidRequest() {
 	s.ErrorContains(err, "window too large")
 }
 
-func (s *UseCaseSuite) newUseCase(client MeasurementsClient, cache MeasurementsCache, observer CacheFailureObserver) UseCase {
+func (s *UseCaseSuite) newUseCase(reader MeasurementsReader) UseCase {
 	s.T().Helper()
 
-	useCase, err := NewUseCase(
-		client,
-		cache,
-		5*time.Minute,
-		func(assetID string, from, to time.Time) string {
-			return assetID + "|" + from.Format(time.RFC3339Nano) + "|" + to.Format(time.RFC3339Nano)
-		},
-		observer,
-	)
+	useCase, err := NewUseCase(reader)
 	s.Require().NoError(err)
 
 	return useCase
@@ -133,58 +118,30 @@ func (s *UseCaseSuite) baseTime() time.Time {
 	return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 }
 
-type stubClient struct {
-	calls  int
-	series domain.MeasurementSeries
-	err    error
+type stubReader struct {
+	calls   int
+	assetID string
+	from    time.Time
+	to      time.Time
+	series  domain.MeasurementSeries
+	err     error
 }
 
-func (c *stubClient) GetMeasurements(_ context.Context, assetID string, _, _ time.Time) (domain.MeasurementSeries, error) {
-	c.calls++
-	if c.err != nil {
-		return domain.MeasurementSeries{}, c.err
+func (r *stubReader) GetMeasurements(_ context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
+	r.calls++
+	r.assetID = assetID
+	r.from = from
+	r.to = to
+
+	if r.err != nil {
+		return domain.MeasurementSeries{}, r.err
 	}
 
-	if c.series.AssetID == "" {
-		c.series.AssetID = assetID
+	if r.series.AssetID == "" {
+		r.series.AssetID = assetID
 	}
 
-	return c.series, nil
-}
-
-type stubCache struct {
-	series   domain.MeasurementSeries
-	found    bool
-	getErr   error
-	setErr   error
-	setCalls int
-}
-
-func (c *stubCache) Get(_ context.Context, _ string) (domain.MeasurementSeries, bool, error) {
-	if c.getErr != nil {
-		return domain.MeasurementSeries{}, false, c.getErr
-	}
-
-	return c.series, c.found, nil
-}
-
-func (c *stubCache) Set(_ context.Context, _ string, value domain.MeasurementSeries, _ time.Duration) error {
-	c.setCalls++
-	if c.setErr != nil {
-		return c.setErr
-	}
-
-	c.series = value
-	c.found = true
-	return nil
-}
-
-type stubObserver struct {
-	operations []string
-}
-
-func (o *stubObserver) CacheOperationFailed(_ context.Context, operation, _ string, _ error) {
-	o.operations = append(o.operations, operation)
+	return r.series, nil
 }
 
 type stubUnavailableError struct {

@@ -7,12 +7,12 @@ import (
 	"api_gateway/internal/measurements/domain"
 )
 
-type MeasurementsClient interface {
+type MeasurementsReader interface {
 	GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error)
 }
 
 type QueryHandler interface {
-	Handle(ctx context.Context, qry Query) (Result, error)
+	Handle(ctx context.Context, qry Query) (domain.MeasurementSeries, error)
 }
 
 type MeasurementsCache interface {

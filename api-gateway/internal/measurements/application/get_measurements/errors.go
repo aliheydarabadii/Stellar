@@ -10,7 +10,7 @@ var (
 	ErrAssetIDRequired               = errors.New("asset id is required")
 	ErrInvalidTimeRange              = errors.New("from must not be after to")
 	ErrTimestampZero                 = errors.New("from and to must be set")
-	ErrMeasurementsClientRequired    = errors.New("measurements client is required")
+	ErrMeasurementsReaderRequired    = errors.New("measurements reader is required")
 	ErrMeasurementsCacheRequired     = errors.New("measurements cache is required")
 	ErrCacheKeyBuilderRequired       = errors.New("cache key builder is required")
 	ErrCacheTTLInvalid               = errors.New("cache ttl must be positive")
@@ -53,7 +53,7 @@ func (e downstreamInvalidRequestError) Is(target error) bool {
 	return target == ErrDownstreamInvalidRequest
 }
 
-func mapMeasurementsClientError(err error) error {
+func mapMeasurementsReaderError(err error) error {
 	if err == nil {
 		return nil
 	}

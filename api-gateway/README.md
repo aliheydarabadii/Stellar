@@ -6,10 +6,10 @@ The API Gateway is the external read-side entrypoint for historical asset measur
 
 The service is organized around the measurements use case:
 
-- `internal/measurements/application/get_measurements`: request DTOs, result types, input and output ports, and the `GetMeasurements` use case
+- `internal/measurements/application/get_measurements`: request DTOs, input and output ports, query validation, and the `GetMeasurements` use case
 - `internal/measurements/domain`: read-side measurement entities returned by the gateway
 - `internal/measurements/adapters/outbound/grpc`: gRPC client adapter for the Measurement Service
-- `internal/measurements/adapters/outbound/redis`: Redis-backed cache adapter and deterministic cache keys
+- `internal/measurements/adapters/outbound/redis`: Redis-backed cache adapter, cached reader decorator, and deterministic cache keys
 - `internal/measurements/adapters/inbound/http`: REST API, middleware, health endpoints, and HTTP-specific request handling
 - `internal/platform`: shared configuration, logging, and request context utilities
 - `cmd/api-gateway`: bootstrap, dependency wiring, readiness composition, and graceful shutdown
@@ -30,7 +30,6 @@ internal/
         errors.go
         ports.go
         query.go
-        result.go
         usecase.go
     domain/
       measurement.go
@@ -45,6 +44,7 @@ internal/
           client.go
         redis/
           cache.go
+          cached_reader.go
           key.go
   platform/
     config/
@@ -102,7 +102,7 @@ Operational behavior:
 - successful HTTP requests are logged with status, duration, request ID, correlation ID, and cache hit or miss
 - `x-request-id` and `x-correlation-id` are propagated to the Measurement Service over gRPC
 - `/readyz` actively checks both Redis and the Measurement Service before returning `200`
-- the use case returns cache status as application output, and the HTTP adapter maps that status into request context for access logging
+- the outbound Redis decorator applies the five-minute read cache and writes cache hit or miss status into request context for access logging
 
 ## API
 

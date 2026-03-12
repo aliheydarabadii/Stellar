@@ -62,13 +62,18 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
-	useCase, err := getmeasurements.NewUseCase(
+	measurementsReader, err := redisadapter.NewCachedReader(
 		measurementsClient,
 		measurementsCache,
 		cfg.CacheTTL,
 		redisadapter.MeasurementsKey,
 		logging.NewCacheObserver(logger),
 	)
+	if err != nil {
+		return fmt.Errorf("initialize cached measurements reader: %w", err)
+	}
+
+	useCase, err := getmeasurements.NewUseCase(measurementsReader)
 	if err != nil {
 		return fmt.Errorf("initialize application: %w", err)
 	}
