@@ -6,11 +6,11 @@ The API Gateway is the external read-side entrypoint for historical asset measur
 
 The service is organized around the measurements use case:
 
-- `internal/measurements/application/get_measurements`: request DTOs, ports, errors, and the `GetMeasurements` use case
+- `internal/measurements/application/get_measurements`: request DTOs, result types, input and output ports, and the `GetMeasurements` use case
 - `internal/measurements/domain`: read-side measurement entities returned by the gateway
 - `internal/measurements/adapters/outbound/grpc`: gRPC client adapter for the Measurement Service
 - `internal/measurements/adapters/outbound/redis`: Redis-backed cache adapter and deterministic cache keys
-- `internal/measurements/adapters/inbound/http`: REST API, health endpoints, and HTTP-specific request handling
+- `internal/measurements/adapters/inbound/http`: REST API, middleware, health endpoints, and HTTP-specific request handling
 - `internal/platform`: shared configuration, logging, and request context utilities
 - `cmd/api-gateway`: bootstrap, dependency wiring, readiness composition, and graceful shutdown
 
@@ -27,9 +27,10 @@ internal/
   measurements/
     application/
       get_measurements/
-        dto.go
         errors.go
         ports.go
+        query.go
+        result.go
         usecase.go
     domain/
       measurement.go
@@ -38,16 +39,18 @@ internal/
         http/
           handler.go
           health.go
+          middleware.go
       outbound/
         grpc/
           client.go
         redis/
           cache.go
-          key_builder.go
+          key.go
   platform/
     config/
       config.go
     logging/
+      cache_observer.go
       logger.go
     requestctx/
       requestctx.go
@@ -99,6 +102,7 @@ Operational behavior:
 - successful HTTP requests are logged with status, duration, request ID, correlation ID, and cache hit or miss
 - `x-request-id` and `x-correlation-id` are propagated to the Measurement Service over gRPC
 - `/readyz` actively checks both Redis and the Measurement Service before returning `200`
+- the use case returns cache status as application output, and the HTTP adapter maps that status into request context for access logging
 
 ## API
 

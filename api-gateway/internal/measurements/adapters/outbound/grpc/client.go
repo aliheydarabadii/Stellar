@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
 	"api_gateway/internal/measurements/domain"
 	"api_gateway/internal/platform/requestctx"
 	grpcpkg "google.golang.org/grpc"
@@ -76,7 +75,7 @@ func (c *Client) Ready(ctx context.Context) error {
 
 func (c *Client) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
 	if c == nil || c.client == nil {
-		return domain.MeasurementSeries{}, getmeasurements.ErrMeasurementServiceUnavailable
+		return domain.MeasurementSeries{}, serviceUnavailableError{cause: errors.New("measurement service client is not initialized")}
 	}
 
 	ctx = withOutgoingRequestMetadata(ctx)
@@ -98,9 +97,9 @@ func mapGRPCError(err error) error {
 
 	switch statusErr.Code() {
 	case codes.InvalidArgument:
-		return getmeasurements.NewDownstreamInvalidRequestError(statusErr.Message())
+		return newDownstreamInvalidRequestError(statusErr.Message())
 	case codes.Unavailable, codes.DeadlineExceeded:
-		return fmt.Errorf("%w: %v", getmeasurements.ErrMeasurementServiceUnavailable, err)
+		return serviceUnavailableError{cause: err}
 	default:
 		return fmt.Errorf("measurement service get measurements: %w", err)
 	}
@@ -161,4 +160,45 @@ func timestampToTime(ts *timestamppb.Timestamp) (time.Time, error) {
 	}
 
 	return ts.AsTime().UTC(), nil
+}
+
+type serviceUnavailableError struct {
+	cause error
+}
+
+func (e serviceUnavailableError) Error() string {
+	if e.cause == nil {
+		return "measurement service unavailable"
+	}
+
+	return fmt.Sprintf("measurement service unavailable: %v", e.cause)
+}
+
+func (e serviceUnavailableError) Unwrap() error {
+	return e.cause
+}
+
+func (e serviceUnavailableError) MeasurementServiceUnavailable() bool {
+	return true
+}
+
+type downstreamInvalidRequestError struct {
+	message string
+}
+
+func newDownstreamInvalidRequestError(message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "measurement service rejected request"
+	}
+
+	return downstreamInvalidRequestError{message: message}
+}
+
+func (e downstreamInvalidRequestError) Error() string {
+	return e.message
+}
+
+func (e downstreamInvalidRequestError) DownstreamInvalidRequestMessage() string {
+	return e.message
 }

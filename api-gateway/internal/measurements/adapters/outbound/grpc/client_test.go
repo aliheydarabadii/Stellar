@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
 	"api_gateway/internal/platform/requestctx"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -63,7 +62,12 @@ func (s *ClientSuite) TestGetMeasurementsMapsInvalidArgumentToBadRequest() {
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	_, err := client.GetMeasurements(context.Background(), "asset-1", base, base.Add(time.Minute))
 
-	s.ErrorIs(err, getmeasurements.ErrDownstreamInvalidRequest)
+	var invalidRequest interface {
+		error
+		DownstreamInvalidRequestMessage() string
+	}
+	s.Require().ErrorAs(err, &invalidRequest)
+	s.Equal("query time range exceeds maximum allowed window", invalidRequest.DownstreamInvalidRequestMessage())
 }
 
 func (s *ClientSuite) TestReadyExecutesDependencyProbe() {

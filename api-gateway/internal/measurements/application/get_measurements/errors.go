@@ -2,6 +2,7 @@ package getmeasurements
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -21,6 +22,16 @@ type downstreamInvalidRequestError struct {
 	message string
 }
 
+type MeasurementServiceUnavailableError interface {
+	error
+	MeasurementServiceUnavailable() bool
+}
+
+type DownstreamInvalidRequestError interface {
+	error
+	DownstreamInvalidRequestMessage() string
+}
+
 func NewDownstreamInvalidRequestError(message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -34,6 +45,28 @@ func (e downstreamInvalidRequestError) Error() string {
 	return e.message
 }
 
+func (e downstreamInvalidRequestError) DownstreamInvalidRequestMessage() string {
+	return e.message
+}
+
 func (e downstreamInvalidRequestError) Is(target error) bool {
 	return target == ErrDownstreamInvalidRequest
+}
+
+func mapMeasurementsClientError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var invalidRequest DownstreamInvalidRequestError
+	if errors.As(err, &invalidRequest) {
+		return NewDownstreamInvalidRequestError(invalidRequest.DownstreamInvalidRequestMessage())
+	}
+
+	var unavailable MeasurementServiceUnavailableError
+	if errors.As(err, &unavailable) && unavailable.MeasurementServiceUnavailable() {
+		return fmt.Errorf("%w: %v", ErrMeasurementServiceUnavailable, err)
+	}
+
+	return err
 }

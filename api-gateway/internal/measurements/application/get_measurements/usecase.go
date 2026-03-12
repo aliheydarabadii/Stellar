@@ -2,12 +2,8 @@ package getmeasurements
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"time"
-
-	"api_gateway/internal/measurements/domain"
-	"api_gateway/internal/platform/requestctx"
 )
 
 type UseCase struct {
@@ -15,7 +11,7 @@ type UseCase struct {
 	cache         MeasurementsCache
 	cacheTTL      time.Duration
 	buildCacheKey CacheKeyBuilder
-	logger        *slog.Logger
+	observer      CacheFailureObserver
 }
 
 func NewUseCase(
@@ -23,7 +19,7 @@ func NewUseCase(
 	cache MeasurementsCache,
 	cacheTTL time.Duration,
 	buildCacheKey CacheKeyBuilder,
-	logger *slog.Logger,
+	observer CacheFailureObserver,
 ) (UseCase, error) {
 	switch {
 	case client == nil:
@@ -41,53 +37,55 @@ func NewUseCase(
 		cache:         cache,
 		cacheTTL:      cacheTTL,
 		buildCacheKey: buildCacheKey,
-		logger:        logger,
+		observer:      observer,
 	}, nil
 }
 
-func (u UseCase) Handle(ctx context.Context, qry Query) (domain.MeasurementSeries, error) {
+func (u UseCase) Handle(ctx context.Context, qry Query) (Result, error) {
 	assetID := strings.TrimSpace(qry.AssetID)
 	from := qry.From.UTC()
 	to := qry.To.UTC()
 
 	switch {
 	case assetID == "":
-		return domain.MeasurementSeries{}, ErrAssetIDRequired
+		return Result{}, ErrAssetIDRequired
 	case qry.From.IsZero() || qry.To.IsZero():
-		return domain.MeasurementSeries{}, ErrTimestampZero
+		return Result{}, ErrTimestampZero
 	case qry.From.After(qry.To):
-		return domain.MeasurementSeries{}, ErrInvalidTimeRange
+		return Result{}, ErrInvalidTimeRange
 	}
 
 	cacheKey := u.buildCacheKey(assetID, from, to)
+	result := Result{CacheStatus: CacheStatusMiss}
 
 	series, found, err := u.cache.Get(ctx, cacheKey)
 	if err != nil {
-		requestctx.SetCacheStatus(ctx, requestctx.CacheStatusBypass)
-		u.logCacheWarning(ctx, "cache get failed", cacheKey, err)
+		result.CacheStatus = CacheStatusBypass
+		u.observeCacheFailure(ctx, "get", cacheKey, err)
 	} else if found {
-		requestctx.SetCacheStatus(ctx, requestctx.CacheStatusHit)
-		return series, nil
-	} else {
-		requestctx.SetCacheStatus(ctx, requestctx.CacheStatusMiss)
+		return Result{
+			Series:      series,
+			CacheStatus: CacheStatusHit,
+		}, nil
 	}
 
 	series, err = u.client.GetMeasurements(ctx, assetID, from, to)
 	if err != nil {
-		return domain.MeasurementSeries{}, err
+		return Result{}, mapMeasurementsClientError(err)
 	}
 
 	if err := u.cache.Set(ctx, cacheKey, series, u.cacheTTL); err != nil {
-		u.logCacheWarning(ctx, "cache set failed", cacheKey, err)
+		u.observeCacheFailure(ctx, "set", cacheKey, err)
 	}
 
-	return series, nil
+	result.Series = series
+	return result, nil
 }
 
-func (u UseCase) logCacheWarning(ctx context.Context, message, key string, err error) {
-	if u.logger == nil {
+func (u UseCase) observeCacheFailure(ctx context.Context, operation, key string, err error) {
+	if u.observer == nil {
 		return
 	}
 
-	u.logger.WarnContext(ctx, message, "key", key, "error", err)
+	u.observer.CacheOperationFailed(ctx, operation, key, err)
 }

@@ -67,7 +67,7 @@ func run(logger *slog.Logger) error {
 		measurementsCache,
 		cfg.CacheTTL,
 		redisadapter.MeasurementsKey,
-		logger,
+		logging.NewCacheObserver(logger),
 	)
 	if err != nil {
 		return fmt.Errorf("initialize application: %w", err)

@@ -333,7 +333,7 @@ func newTestHandler(t *testing.T, client getmeasurements.MeasurementsClient, cac
 		func(assetID string, from, to time.Time) string {
 			return assetID + "|" + from.Format(time.RFC3339Nano) + "|" + to.Format(time.RFC3339Nano)
 		},
-		logger,
+		nil,
 	)
 	require.NoError(t, err)
 
