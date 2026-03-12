@@ -63,11 +63,6 @@ func NewTransport(logger *slog.Logger, queryHandler getmeasurements.QueryHandler
 			loggingUnaryInterceptor(logger),
 			recoveryUnaryInterceptor(logger),
 		),
-		grpcpkg.ChainStreamInterceptor(
-			requestIDStreamInterceptor(),
-			loggingStreamInterceptor(logger),
-			recoveryStreamInterceptor(logger),
-		),
 	)
 
 	measurementsv1.RegisterMeasurementServiceServer(server, NewServer(queryHandler))
@@ -112,23 +107,6 @@ func requestIDUnaryInterceptor() grpcpkg.UnaryServerInterceptor {
 	}
 }
 
-func requestIDStreamInterceptor() grpcpkg.StreamServerInterceptor {
-	return func(
-		srv any,
-		stream grpcpkg.ServerStream,
-		_ *grpcpkg.StreamServerInfo,
-		handler grpcpkg.StreamHandler,
-	) error {
-		requestID := requestIDFromIncomingContext(stream.Context())
-		_ = stream.SetHeader(metadata.Pairs(RequestIDMetadataKey, requestID))
-
-		return handler(srv, &requestIDServerStream{
-			ServerStream: stream,
-			ctx:          withRequestID(stream.Context(), requestID),
-		})
-	}
-}
-
 func loggingUnaryInterceptor(logger *slog.Logger) grpcpkg.UnaryServerInterceptor {
 	logger = fallbackLogger(logger)
 
@@ -149,29 +127,6 @@ func loggingUnaryInterceptor(logger *slog.Logger) grpcpkg.UnaryServerInterceptor
 		)
 
 		return resp, err
-	}
-}
-
-func loggingStreamInterceptor(logger *slog.Logger) grpcpkg.StreamServerInterceptor {
-	logger = fallbackLogger(logger)
-
-	return func(
-		srv any,
-		stream grpcpkg.ServerStream,
-		info *grpcpkg.StreamServerInfo,
-		handler grpcpkg.StreamHandler,
-	) (err error) {
-		start := time.Now()
-		err = handler(srv, stream)
-
-		logger.Info("handled gRPC stream request",
-			"method", info.FullMethod,
-			"request_id", RequestIDFromContext(stream.Context()),
-			"code", status.Code(err).String(),
-			"duration", time.Since(start),
-		)
-
-		return err
 	}
 }
 
@@ -201,31 +156,6 @@ func recoveryUnaryInterceptor(logger *slog.Logger) grpcpkg.UnaryServerIntercepto
 	}
 }
 
-func recoveryStreamInterceptor(logger *slog.Logger) grpcpkg.StreamServerInterceptor {
-	logger = fallbackLogger(logger)
-
-	return func(
-		srv any,
-		stream grpcpkg.ServerStream,
-		info *grpcpkg.StreamServerInfo,
-		handler grpcpkg.StreamHandler,
-	) (err error) {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				logger.Error("recovered panic in gRPC stream handler",
-					"method", info.FullMethod,
-					"request_id", RequestIDFromContext(stream.Context()),
-					"panic", fmt.Sprint(recovered),
-					"stack", string(debug.Stack()),
-				)
-				err = status.Error(codes.Internal, "internal server error")
-			}
-		}()
-
-		return handler(srv, stream)
-	}
-}
-
 func fallbackLogger(logger *slog.Logger) *slog.Logger {
 	if logger != nil {
 		return logger
@@ -249,13 +179,4 @@ func requestIDFromIncomingContext(ctx context.Context) string {
 
 func withRequestID(ctx context.Context, requestID string) context.Context {
 	return context.WithValue(ctx, requestIDContextKey{}, requestID)
-}
-
-type requestIDServerStream struct {
-	grpcpkg.ServerStream
-	ctx context.Context
-}
-
-func (s *requestIDServerStream) Context() context.Context {
-	return s.ctx
 }

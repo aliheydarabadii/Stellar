@@ -132,22 +132,6 @@ func (s *GRPCTransportSuite) TestRecoveryUnaryInterceptorConvertsPanicsToInterna
 	s.Contains(s.logs.String(), "req-panic")
 }
 
-func (s *GRPCTransportSuite) TestRecoveryStreamInterceptorConvertsPanicsToInternalError() {
-	interceptor := recoveryStreamInterceptor(s.logger)
-
-	err := interceptor(
-		nil,
-		&fakeServerStream{ctx: withRequestID(context.Background(), "stream-panic")},
-		&grpcpkg.StreamServerInfo{FullMethod: "/measurements.v1.MeasurementService/StreamMeasurements"},
-		func(any, grpcpkg.ServerStream) error {
-			panic("boom")
-		},
-	)
-
-	s.Equal(codes.Internal, status.Code(err))
-	s.Contains(s.logs.String(), "stream-panic")
-}
-
 type fakeServerTransportStream struct {
 	header metadata.MD
 }
@@ -168,27 +152,6 @@ func (s *fakeServerTransportStream) SendHeader(md metadata.MD) error {
 func (s *fakeServerTransportStream) SetTrailer(metadata.MD) error {
 	return nil
 }
-
-type fakeServerStream struct {
-	grpcpkg.ServerStream
-	ctx    context.Context
-	header metadata.MD
-}
-
-func (s *fakeServerStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s *fakeServerStream) SetHeader(md metadata.MD) error {
-	s.header = metadata.Join(s.header, md)
-	return nil
-}
-
-func (s *fakeServerStream) SendHeader(md metadata.MD) error {
-	return s.SetHeader(md)
-}
-
-func (s *fakeServerStream) SetTrailer(metadata.MD) {}
 
 func firstMetadataValue(md metadata.MD, key string) string {
 	values := md.Get(key)
