@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements"
+	getmeasurements "api_gateway/internal/measurements/application"
+
 	gobreaker "github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/suite"
 )
@@ -28,7 +30,7 @@ func (s *CircuitBreakerSuite) TestNewCircuitBreakerReaderRejectsNilInnerReader()
 
 func (s *CircuitBreakerSuite) TestGetMeasurementsDelegatesToInnerReader() {
 	reader := &stubMeasurementsReader{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	breaker, err := newCircuitBreakerReader(reader, gobreaker.Settings{
 		Name: "test-breaker",
@@ -44,7 +46,7 @@ func (s *CircuitBreakerSuite) TestGetMeasurementsDelegatesToInnerReader() {
 
 func (s *CircuitBreakerSuite) TestGetMeasurementsOpensCircuitAfterFailure() {
 	reader := &stubMeasurementsReader{
-		err: serviceUnavailableError{cause: errors.New("rpc unavailable")},
+		err: fmt.Errorf("%w: %w", measurements.ErrMeasurementsReaderUnavailable, errors.New("rpc unavailable")),
 	}
 	breaker, err := newCircuitBreakerReader(reader, gobreaker.Settings{
 		Name:        "test-breaker",
@@ -59,18 +61,13 @@ func (s *CircuitBreakerSuite) TestGetMeasurementsOpensCircuitAfterFailure() {
 	s.Error(firstErr)
 	s.Error(secondErr)
 	s.Equal(1, reader.calls)
-	var unavailable interface {
-		error
-		MeasurementServiceUnavailable() bool
-	}
-	s.Require().ErrorAs(secondErr, &unavailable)
-	s.True(unavailable.MeasurementServiceUnavailable())
+	s.ErrorIs(secondErr, measurements.ErrMeasurementsReaderUnavailable)
 	s.ErrorContains(secondErr, gobreaker.ErrOpenState.Error())
 }
 
 func (s *CircuitBreakerSuite) TestGetMeasurementsExcludesInvalidRequestFromBreaker() {
 	reader := &stubMeasurementsReader{
-		err: getmeasurements.NewDownstreamInvalidRequestError("window too large"),
+		err: fmt.Errorf("%w: %s", measurements.ErrMeasurementsReaderInvalidRequest, "window too large"),
 	}
 	breaker, err := newCircuitBreakerReader(reader, gobreaker.Settings{
 		Name:        "test-breaker",
@@ -81,10 +78,10 @@ func (s *CircuitBreakerSuite) TestGetMeasurementsExcludesInvalidRequestFromBreak
 
 	_, firstErr := breaker.GetMeasurements(context.Background(), "asset-1", s.baseTime(), s.baseTime().Add(time.Minute))
 	reader.err = nil
-	reader.series = domain.MeasurementSeries{AssetID: "asset-1"}
+	reader.series = measurements.MeasurementSeries{AssetID: "asset-1"}
 	_, secondErr := breaker.GetMeasurements(context.Background(), "asset-1", s.baseTime(), s.baseTime().Add(time.Minute))
 
-	s.ErrorIs(firstErr, getmeasurements.ErrDownstreamInvalidRequest)
+	s.ErrorIs(firstErr, measurements.ErrMeasurementsReaderInvalidRequest)
 	s.NoError(secondErr)
 	s.Equal(2, reader.calls)
 }
@@ -95,14 +92,14 @@ func (s *CircuitBreakerSuite) baseTime() time.Time {
 
 type stubMeasurementsReader struct {
 	calls  int
-	series domain.MeasurementSeries
+	series measurements.MeasurementSeries
 	err    error
 }
 
-func (r *stubMeasurementsReader) GetMeasurements(_ context.Context, assetID string, _, _ time.Time) (domain.MeasurementSeries, error) {
+func (r *stubMeasurementsReader) GetMeasurements(_ context.Context, assetID string, _, _ time.Time) (measurements.MeasurementSeries, error) {
 	r.calls++
 	if r.err != nil {
-		return domain.MeasurementSeries{}, r.err
+		return measurements.MeasurementSeries{}, r.err
 	}
 
 	if r.series.AssetID == "" {

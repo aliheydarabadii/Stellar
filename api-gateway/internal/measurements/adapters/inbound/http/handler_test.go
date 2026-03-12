@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	stdhttp "net/http"
@@ -12,10 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"api_gateway/internal/measurements"
 	redisadapter "api_gateway/internal/measurements/adapters/outbound/redis"
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements/application"
 	"api_gateway/internal/platform/requestctx"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -32,9 +34,9 @@ func TestHTTPSuite(t *testing.T) {
 func (s *HTTPSuite) TestHandlerGetMeasurementsReturnsJSON() {
 	base := s.baseTime()
 	handler := newTestHandler(s.T(), &fakeMeasurementsClient{
-		series: domain.MeasurementSeries{
+		series: measurements.MeasurementSeries{
 			AssetID: "asset-1",
-			Points: []domain.MeasurementPoint{
+			Points: []measurements.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    100,
@@ -51,7 +53,7 @@ func (s *HTTPSuite) TestHandlerGetMeasurementsReturnsJSON() {
 
 	s.Equal(stdhttp.StatusOK, rec.Code)
 
-	var got domain.MeasurementSeries
+	var got measurements.MeasurementSeries
 	err := json.Unmarshal(rec.Body.Bytes(), &got)
 	s.Require().NoError(err)
 	s.Equal("asset-1", got.AssetID)
@@ -96,7 +98,7 @@ func (s *HTTPSuite) TestHandlerGetMeasurementsRejectsInvalidRange() {
 func (s *HTTPSuite) TestHandlerGetMeasurementsReturnsServiceUnavailable() {
 	base := s.baseTime()
 	handler := newTestHandler(s.T(), &fakeMeasurementsClient{
-		err: getmeasurements.ErrMeasurementServiceUnavailable,
+		err: application.ErrMeasurementServiceUnavailable,
 	}, &fakeMeasurementsCache{}, nil)
 
 	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
@@ -110,7 +112,7 @@ func (s *HTTPSuite) TestHandlerGetMeasurementsReturnsServiceUnavailable() {
 func (s *HTTPSuite) TestHandlerGetMeasurementsReturnsBadRequestForDownstreamInvalidArgument() {
 	base := s.baseTime()
 	handler := newTestHandler(s.T(), &fakeMeasurementsClient{
-		err: getmeasurements.NewDownstreamInvalidRequestError("query time range exceeds maximum allowed window"),
+		err: fmt.Errorf("%w: %s", measurements.ErrMeasurementsReaderInvalidRequest, "query time range exceeds maximum allowed window"),
 	}, &fakeMeasurementsCache{}, nil)
 
 	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
@@ -125,7 +127,7 @@ func (s *HTTPSuite) TestHandlerGetMeasurementsReturnsBadRequestForDownstreamInva
 func (s *HTTPSuite) TestHandlerPropagatesRequestMetadataToContextAndResponse() {
 	base := s.baseTime()
 	client := &fakeMeasurementsClient{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	handler := newTestHandler(s.T(), client, &fakeMeasurementsCache{}, nil)
 
@@ -146,7 +148,7 @@ func (s *HTTPSuite) TestHandlerPropagatesRequestMetadataToContextAndResponse() {
 func (s *HTTPSuite) TestHandlerFallsBackToCorrelationIDWhenRequestIDMissing() {
 	base := s.baseTime()
 	client := &fakeMeasurementsClient{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	handler := newTestHandler(s.T(), client, &fakeMeasurementsCache{}, nil)
 
@@ -166,7 +168,7 @@ func (s *HTTPSuite) TestHandlerFallsBackToCorrelationIDWhenRequestIDMissing() {
 func (s *HTTPSuite) TestHandlerGeneratesRequestIDWhenMissing() {
 	base := s.baseTime()
 	client := &fakeMeasurementsClient{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	handler := newTestHandler(s.T(), client, &fakeMeasurementsCache{}, nil)
 
@@ -185,7 +187,7 @@ func (s *HTTPSuite) TestHandlerGeneratesRequestIDWhenMissing() {
 func (s *HTTPSuite) TestHandlerAccessLogIncludesCacheMissAndRequestMetadata() {
 	base := s.baseTime()
 	client := &fakeMeasurementsClient{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	cache := &fakeMeasurementsCache{}
 	logs := &bytes.Buffer{}
@@ -210,7 +212,7 @@ func (s *HTTPSuite) TestHandlerAccessLogIncludesCacheMissAndRequestMetadata() {
 func (s *HTTPSuite) TestHandlerAccessLogIncludesCacheHit() {
 	base := s.baseTime()
 	cache := &fakeMeasurementsCache{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 		found:  true,
 	}
 	logs := &bytes.Buffer{}
@@ -231,7 +233,7 @@ func (s *HTTPSuite) TestHandlerDefaultsCacheStatusWhenQueryHandlerDoesNotSetIt()
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(io.MultiWriter(io.Discard, logs), nil))
 	handler := NewHandler(fakeQueryHandler{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}, logger, 0)
 
 	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339)+"&to="+base.Add(time.Minute).Format(time.RFC3339), nil)
@@ -255,9 +257,9 @@ func (s *HTTPSuite) TestHandlerCachesIdenticalRequestsWithinTTL() {
 
 	base := s.baseTime()
 	client := &countingMeasurementsClient{
-		series: domain.MeasurementSeries{
+		series: measurements.MeasurementSeries{
 			AssetID: "asset-1",
-			Points: []domain.MeasurementPoint{
+			Points: []measurements.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    42,
@@ -340,7 +342,7 @@ func (s *HTTPSuite) baseTime() time.Time {
 	return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 }
 
-func newTestHandler(t *testing.T, reader getmeasurements.MeasurementsReader, cache getmeasurements.MeasurementsCache, logger *slog.Logger) stdhttp.Handler {
+func newTestHandler(t *testing.T, reader measurements.MeasurementsReader, cache application.MeasurementsCache, logger *slog.Logger) stdhttp.Handler {
 	t.Helper()
 
 	cachedReader, err := redisadapter.NewCachedReader(
@@ -352,20 +354,20 @@ func newTestHandler(t *testing.T, reader getmeasurements.MeasurementsReader, cac
 	)
 	require.NoError(t, err)
 
-	useCase, err := getmeasurements.NewUseCase(cachedReader)
+	useCase, err := application.NewMeasurementsHandler(cachedReader)
 	require.NoError(t, err)
 
 	return NewHandler(useCase, logger, 0)
 }
 
 type fakeQueryHandler struct {
-	series domain.MeasurementSeries
+	series measurements.MeasurementSeries
 	err    error
 }
 
-func (h fakeQueryHandler) Handle(_ context.Context, qry getmeasurements.Query) (domain.MeasurementSeries, error) {
+func (h fakeQueryHandler) Handle(_ context.Context, qry application.Query) (measurements.MeasurementSeries, error) {
 	if h.err != nil {
-		return domain.MeasurementSeries{}, h.err
+		return measurements.MeasurementSeries{}, h.err
 	}
 
 	if h.series.AssetID == "" {
@@ -376,18 +378,18 @@ func (h fakeQueryHandler) Handle(_ context.Context, qry getmeasurements.Query) (
 }
 
 type fakeMeasurementsClient struct {
-	series        domain.MeasurementSeries
+	series        measurements.MeasurementSeries
 	err           error
 	requestID     string
 	correlationID string
 }
 
-func (f *fakeMeasurementsClient) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
+func (f *fakeMeasurementsClient) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
 	f.requestID = requestctx.RequestIDFromContext(ctx)
 	f.correlationID = requestctx.CorrelationIDFromContext(ctx)
 
 	if f.err != nil {
-		return domain.MeasurementSeries{}, f.err
+		return measurements.MeasurementSeries{}, f.err
 	}
 
 	if f.series.AssetID == "" {
@@ -398,20 +400,20 @@ func (f *fakeMeasurementsClient) GetMeasurements(ctx context.Context, assetID st
 }
 
 type fakeMeasurementsCache struct {
-	series domain.MeasurementSeries
+	series measurements.MeasurementSeries
 	found  bool
 	err    error
 }
 
-func (f *fakeMeasurementsCache) Get(_ context.Context, _ string) (domain.MeasurementSeries, bool, error) {
+func (f *fakeMeasurementsCache) Get(_ context.Context, _ string) (measurements.MeasurementSeries, bool, error) {
 	if f.err != nil {
-		return domain.MeasurementSeries{}, false, f.err
+		return measurements.MeasurementSeries{}, false, f.err
 	}
 
 	return f.series, f.found, nil
 }
 
-func (f *fakeMeasurementsCache) Set(_ context.Context, _ string, value domain.MeasurementSeries, _ time.Duration) error {
+func (f *fakeMeasurementsCache) Set(_ context.Context, _ string, value measurements.MeasurementSeries, _ time.Duration) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -423,10 +425,10 @@ func (f *fakeMeasurementsCache) Set(_ context.Context, _ string, value domain.Me
 
 type countingMeasurementsClient struct {
 	calls  int
-	series domain.MeasurementSeries
+	series measurements.MeasurementSeries
 }
 
-func (c *countingMeasurementsClient) GetMeasurements(_ context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
+func (c *countingMeasurementsClient) GetMeasurements(_ context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
 	c.calls++
 	if c.series.AssetID == "" {
 		c.series.AssetID = assetID

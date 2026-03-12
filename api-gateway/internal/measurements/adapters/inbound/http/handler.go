@@ -9,8 +9,9 @@ import (
 	"net/url"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
+	"api_gateway/internal/measurements/application"
 	"api_gateway/internal/platform/requestctx"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,7 +19,7 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHandler(queryHandler getmeasurements.QueryHandler, logger *slog.Logger, requestTimeout time.Duration) stdhttp.Handler {
+func NewHandler(queryHandler application.QueryHandler, logger *slog.Logger, requestTimeout time.Duration) stdhttp.Handler {
 	engine := gin.New()
 	engine.Use(withRouteMetadata())
 	engine.GET("/assets/:asset_id/measurements", func(c *gin.Context) {
@@ -41,7 +42,7 @@ func NewHandler(queryHandler getmeasurements.QueryHandler, logger *slog.Logger, 
 			return
 		}
 
-		series, err := queryHandler.Handle(ctx, getmeasurements.Query{
+		series, err := queryHandler.Handle(ctx, application.Query{
 			AssetID: decodePathParam(c.Param("asset_id")),
 			From:    from,
 			To:      to,
@@ -88,12 +89,12 @@ func decodePathParam(value string) string {
 
 func writeQueryError(w stdhttp.ResponseWriter, r *stdhttp.Request, logger *slog.Logger, err error) {
 	switch {
-	case errors.Is(err, getmeasurements.ErrAssetIDRequired),
-		errors.Is(err, getmeasurements.ErrTimestampZero),
-		errors.Is(err, getmeasurements.ErrInvalidTimeRange),
-		errors.Is(err, getmeasurements.ErrDownstreamInvalidRequest):
+	case errors.Is(err, application.ErrAssetIDRequired),
+		errors.Is(err, application.ErrTimestampZero),
+		errors.Is(err, application.ErrInvalidTimeRange),
+		errors.Is(err, application.ErrDownstreamInvalidRequest):
 		writeJSON(w, stdhttp.StatusBadRequest, errorResponse{Error: err.Error()})
-	case errors.Is(err, getmeasurements.ErrMeasurementServiceUnavailable),
+	case errors.Is(err, application.ErrMeasurementServiceUnavailable),
 		errors.Is(err, context.DeadlineExceeded):
 		if logger != nil {
 			logger.WarnContext(r.Context(), "measurement service unavailable", "error", err)

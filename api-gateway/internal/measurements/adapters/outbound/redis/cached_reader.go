@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements"
+	getmeasurements "api_gateway/internal/measurements/application"
 	"api_gateway/internal/platform/requestctx"
 )
 
 type CachedReader struct {
-	inner         getmeasurements.MeasurementsReader
+	inner         measurements.MeasurementsReader
 	cache         getmeasurements.MeasurementsCache
 	cacheTTL      time.Duration
 	buildCacheKey getmeasurements.CacheKeyBuilder
@@ -18,7 +18,7 @@ type CachedReader struct {
 }
 
 func NewCachedReader(
-	inner getmeasurements.MeasurementsReader,
+	inner measurements.MeasurementsReader,
 	cache getmeasurements.MeasurementsCache,
 	cacheTTL time.Duration,
 	buildCacheKey getmeasurements.CacheKeyBuilder,
@@ -44,7 +44,7 @@ func NewCachedReader(
 	}, nil
 }
 
-func (r *CachedReader) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
+func (r *CachedReader) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
 	cacheKey := r.buildCacheKey(assetID, from, to)
 
 	series, found, err := r.cache.Get(ctx, cacheKey)
@@ -62,7 +62,7 @@ func (r *CachedReader) GetMeasurements(ctx context.Context, assetID string, from
 
 	series, err = r.inner.GetMeasurements(ctx, assetID, from, to)
 	if err != nil {
-		return domain.MeasurementSeries{}, err
+		return measurements.MeasurementSeries{}, err
 	}
 
 	if err := r.cache.Set(ctx, cacheKey, series, r.cacheTTL); err != nil {

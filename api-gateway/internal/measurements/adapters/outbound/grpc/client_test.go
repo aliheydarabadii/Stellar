@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"api_gateway/internal/measurements"
 	"api_gateway/internal/platform/requestctx"
+	measurementsv1 "stellar/api/proto"
+
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
@@ -16,8 +19,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	measurementsv1 "stellar/api/proto"
 )
 
 const bufConnSize = 1024 * 1024
@@ -62,12 +63,8 @@ func (s *ClientSuite) TestGetMeasurementsMapsInvalidArgumentToBadRequest() {
 	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	_, err := client.GetMeasurements(context.Background(), "asset-1", base, base.Add(time.Minute))
 
-	var invalidRequest interface {
-		error
-		DownstreamInvalidRequestMessage() string
-	}
-	s.Require().ErrorAs(err, &invalidRequest)
-	s.Equal("query time range exceeds maximum allowed window", invalidRequest.DownstreamInvalidRequestMessage())
+	s.ErrorIs(err, measurements.ErrMeasurementsReaderInvalidRequest)
+	s.ErrorContains(err, "query time range exceeds maximum allowed window")
 }
 
 func (s *ClientSuite) TestReadyExecutesDependencyProbe() {

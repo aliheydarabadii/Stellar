@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements"
+	getmeasurements "api_gateway/internal/measurements/application"
+
 	gobreaker "github.com/sony/gobreaker/v2"
 )
 
@@ -18,11 +20,11 @@ const (
 )
 
 type CircuitBreakerReader struct {
-	inner   getmeasurements.MeasurementsReader
-	breaker *gobreaker.CircuitBreaker[domain.MeasurementSeries]
+	inner   measurements.MeasurementsReader
+	breaker *gobreaker.CircuitBreaker[measurements.MeasurementSeries]
 }
 
-func NewCircuitBreakerReader(inner getmeasurements.MeasurementsReader, logger *slog.Logger) (*CircuitBreakerReader, error) {
+func NewCircuitBreakerReader(inner measurements.MeasurementsReader, logger *slog.Logger) (*CircuitBreakerReader, error) {
 	settings := gobreaker.Settings{
 		Name:        defaultCircuitBreakerName,
 		MaxRequests: 1,
@@ -41,7 +43,7 @@ func NewCircuitBreakerReader(inner getmeasurements.MeasurementsReader, logger *s
 	return newCircuitBreakerReader(inner, settings)
 }
 
-func newCircuitBreakerReader(inner getmeasurements.MeasurementsReader, settings gobreaker.Settings) (*CircuitBreakerReader, error) {
+func newCircuitBreakerReader(inner measurements.MeasurementsReader, settings gobreaker.Settings) (*CircuitBreakerReader, error) {
 	if inner == nil {
 		return nil, getmeasurements.ErrMeasurementsReaderRequired
 	}
@@ -54,16 +56,16 @@ func newCircuitBreakerReader(inner getmeasurements.MeasurementsReader, settings 
 
 	return &CircuitBreakerReader{
 		inner:   inner,
-		breaker: gobreaker.NewCircuitBreaker[domain.MeasurementSeries](settings),
+		breaker: gobreaker.NewCircuitBreaker[measurements.MeasurementSeries](settings),
 	}, nil
 }
 
-func (r *CircuitBreakerReader) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
-	series, err := r.breaker.Execute(func() (domain.MeasurementSeries, error) {
+func (r *CircuitBreakerReader) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
+	series, err := r.breaker.Execute(func() (measurements.MeasurementSeries, error) {
 		return r.inner.GetMeasurements(ctx, assetID, from, to)
 	})
 	if err != nil {
-		return domain.MeasurementSeries{}, mapCircuitBreakerError(err)
+		return measurements.MeasurementSeries{}, mapCircuitBreakerError(err)
 	}
 
 	return series, nil
@@ -72,7 +74,7 @@ func (r *CircuitBreakerReader) GetMeasurements(ctx context.Context, assetID stri
 func mapCircuitBreakerError(err error) error {
 	switch {
 	case errors.Is(err, gobreaker.ErrOpenState), errors.Is(err, gobreaker.ErrTooManyRequests):
-		return serviceUnavailableError{cause: err}
+		return fmt.Errorf("%w: %w", measurements.ErrMeasurementsReaderUnavailable, err)
 	default:
 		return err
 	}
@@ -86,8 +88,5 @@ func shouldExcludeFromCircuitBreaker(err error) bool {
 		return true
 	}
 
-	var invalidRequest interface {
-		DownstreamInvalidRequestMessage() string
-	}
-	return errors.As(err, &invalidRequest)
+	return errors.Is(err, measurements.ErrMeasurementsReaderInvalidRequest)
 }

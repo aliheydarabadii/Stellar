@@ -4,17 +4,15 @@ The API Gateway is the external read-side entrypoint for historical asset measur
 
 ## Architecture
 
-The service is organized around the measurements use case:
+The service is organized around a single measurements read feature:
 
-- `internal/measurements/application/get_measurements`: request DTOs, input and output ports, query validation, and the `GetMeasurements` use case
-- `internal/measurements/domain`: read-side measurement entities returned by the gateway
+- `internal/measurements`: feature-level measurement types, the shared `MeasurementsReader` port, and reader-contract errors
+- `internal/measurements/application`: query DTOs, application ports, validation, and the `GetMeasurementsHandler`
+- `internal/measurements/adapters/inbound/http`: Gin-based REST handler, middleware, health endpoints, and HTTP-specific request handling
 - `internal/measurements/adapters/outbound/grpc`: gRPC client adapter for the Measurement Service plus a circuit-breaker reader decorator
 - `internal/measurements/adapters/outbound/redis`: Redis-backed cache adapter, cached reader decorator, and deterministic cache keys
-- `internal/measurements/adapters/inbound/http`: REST API, middleware, health endpoints, and HTTP-specific request handling
 - `internal/platform`: shared configuration, logging, and request context utilities
 - `cmd/api-gateway`: bootstrap, dependency wiring, readiness composition, and graceful shutdown
-
-This service is read-side only. It does not talk to Modbus, does not write to InfluxDB, and does not query InfluxDB directly.
 
 ## Package Structure
 
@@ -22,37 +20,48 @@ This service is read-side only. It does not talk to Modbus, does not write to In
 cmd/
   api-gateway/
     main.go
+    main_test.go
 
 internal/
   measurements/
-    application/
-      get_measurements/
-        errors.go
-        ports.go
-        query.go
-        usecase.go
-    domain/
-      measurement.go
     adapters/
       inbound/
         http/
           handler.go
+          handler_test.go
           health.go
           middleware.go
       outbound/
         grpc/
-          client.go
           circuit_breaker.go
+          circuit_breaker_test.go
+          client.go
+          client_test.go
         redis/
           cache.go
+          cache_test.go
           cached_reader.go
+          cached_reader_test.go
           key.go
+    application/
+      errors.go
+      ports.go
+      query.go
+      query_handler.go
+      query_handler_test.go
+    errors.go
+    measurement.go
+    mocks/
+      MeasurementsReader.go
+    ports.go
   platform/
     config/
       config.go
+      config_test.go
     logging/
       cache_observer.go
       logger.go
+      logger_test.go
     requestctx/
       requestctx.go
 ```
@@ -103,9 +112,9 @@ Operational behavior:
 
 - successful HTTP requests are logged with status, duration, request ID, correlation ID, and cache hit or miss
 - `x-request-id` and `x-correlation-id` are propagated to the Measurement Service over gRPC
-- downstream gRPC reads are protected by a circuit breaker before they reach the Redis cache decorator
+- the Redis cached reader applies the five-minute freshness policy; cache hits stay in Redis, and cache misses flow through a circuit-breaker-protected gRPC reader
 - `/readyz` actively checks both Redis and the Measurement Service before returning `200`
-- the outbound Redis decorator applies the five-minute read cache and writes cache hit or miss status into request context for access logging
+- the outbound Redis decorator writes cache hit, miss, bypass, or not-applicable status into request context for access logging
 
 ## API
 

@@ -15,7 +15,7 @@ import (
 	inboundhttp "api_gateway/internal/measurements/adapters/inbound/http"
 	grpcadapter "api_gateway/internal/measurements/adapters/outbound/grpc"
 	redisadapter "api_gateway/internal/measurements/adapters/outbound/redis"
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
+	getmeasurements "api_gateway/internal/measurements/application"
 	"api_gateway/internal/platform/config"
 	"api_gateway/internal/platform/logging"
 )
@@ -85,7 +85,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("initialize cached measurements reader: %w", err)
 	}
 
-	useCase, err := getmeasurements.NewUseCase(measurementsReader)
+	useCase, err := getmeasurements.NewMeasurementsHandler(measurementsReader)
 	if err != nil {
 		return fmt.Errorf("initialize application: %w", err)
 	}

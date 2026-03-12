@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -23,9 +24,9 @@ func (s *CacheSuite) TestSetAndGet() {
 	redisServer := miniredis.RunT(s.T())
 	cache := newTestCache(s.T(), redisServer)
 
-	series := domain.MeasurementSeries{
+	series := measurements.MeasurementSeries{
 		AssetID: "asset-1",
-		Points: []domain.MeasurementPoint{
+		Points: []measurements.MeasurementPoint{
 			{
 				Timestamp:   time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
 				Setpoint:    100,
@@ -51,7 +52,7 @@ func (s *CacheSuite) TestExpiredEntriesReturnMiss() {
 	cache := newTestCache(s.T(), redisServer)
 
 	key := MeasurementsKey("asset-1", time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC), time.Date(2026, 3, 10, 12, 5, 0, 0, time.UTC))
-	err := cache.Set(context.Background(), key, domain.MeasurementSeries{AssetID: "asset-1"}, time.Second)
+	err := cache.Set(context.Background(), key, measurements.MeasurementSeries{AssetID: "asset-1"}, time.Second)
 	s.Require().NoError(err)
 
 	redisServer.FastForward(2 * time.Second)
@@ -80,9 +81,9 @@ func (s *CacheSuite) TestSerializationRoundTrip() {
 	redisServer := miniredis.RunT(s.T())
 	cache := newTestCache(s.T(), redisServer)
 
-	series := domain.MeasurementSeries{
+	series := measurements.MeasurementSeries{
 		AssetID: "asset-1",
-		Points: []domain.MeasurementPoint{
+		Points: []measurements.MeasurementPoint{
 			{
 				Timestamp:   time.Date(2026, 3, 10, 12, 0, 0, 123456789, time.UTC),
 				Setpoint:    12.5,

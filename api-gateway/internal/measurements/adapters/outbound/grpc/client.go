@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements"
 	"api_gateway/internal/platform/requestctx"
 	grpcpkg "google.golang.org/grpc"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -73,9 +74,9 @@ func (c *Client) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (domain.MeasurementSeries, error) {
+func (c *Client) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
 	if c == nil || c.client == nil {
-		return domain.MeasurementSeries{}, serviceUnavailableError{cause: errors.New("measurement service client is not initialized")}
+		return measurements.MeasurementSeries{}, fmt.Errorf("%w: measurement service client is not initialized", measurements.ErrMeasurementsReaderUnavailable)
 	}
 
 	ctx = withOutgoingRequestMetadata(ctx)
@@ -86,7 +87,7 @@ func (c *Client) GetMeasurements(ctx context.Context, assetID string, from, to t
 		To:      timestamppb.New(to.UTC()),
 	})
 	if err != nil {
-		return domain.MeasurementSeries{}, mapGRPCError(err)
+		return measurements.MeasurementSeries{}, mapGRPCError(err)
 	}
 
 	return toMeasurementSeries(resp)
@@ -97,34 +98,39 @@ func mapGRPCError(err error) error {
 
 	switch statusErr.Code() {
 	case codes.InvalidArgument:
-		return newDownstreamInvalidRequestError(statusErr.Message())
+		message := strings.TrimSpace(statusErr.Message())
+		if message == "" {
+			return measurements.ErrMeasurementsReaderInvalidRequest
+		}
+
+		return fmt.Errorf("%w: %s", measurements.ErrMeasurementsReaderInvalidRequest, message)
 	case codes.Unavailable, codes.DeadlineExceeded:
-		return serviceUnavailableError{cause: err}
+		return fmt.Errorf("%w: %w", measurements.ErrMeasurementsReaderUnavailable, err)
 	default:
 		return fmt.Errorf("measurement service get measurements: %w", err)
 	}
 }
 
-func toMeasurementSeries(resp *measurementsv1.GetMeasurementsResponse) (domain.MeasurementSeries, error) {
+func toMeasurementSeries(resp *measurementsv1.GetMeasurementsResponse) (measurements.MeasurementSeries, error) {
 	if resp == nil {
-		return domain.MeasurementSeries{}, errors.New("measurement service returned nil response")
+		return measurements.MeasurementSeries{}, errors.New("measurement service returned nil response")
 	}
 
-	points := make([]domain.MeasurementPoint, 0, len(resp.GetPoints()))
+	points := make([]measurements.MeasurementPoint, 0, len(resp.GetPoints()))
 	for _, point := range resp.GetPoints() {
 		timestamp, err := timestampToTime(point.GetTimestamp())
 		if err != nil {
-			return domain.MeasurementSeries{}, err
+			return measurements.MeasurementSeries{}, err
 		}
 
-		points = append(points, domain.MeasurementPoint{
+		points = append(points, measurements.MeasurementPoint{
 			Timestamp:   timestamp,
 			Setpoint:    point.GetSetpoint(),
 			ActivePower: point.GetActivePower(),
 		})
 	}
 
-	return domain.MeasurementSeries{
+	return measurements.MeasurementSeries{
 		AssetID: resp.GetAssetId(),
 		Points:  points,
 	}, nil
@@ -160,45 +166,4 @@ func timestampToTime(ts *timestamppb.Timestamp) (time.Time, error) {
 	}
 
 	return ts.AsTime().UTC(), nil
-}
-
-type serviceUnavailableError struct {
-	cause error
-}
-
-func (e serviceUnavailableError) Error() string {
-	if e.cause == nil {
-		return "measurement service unavailable"
-	}
-
-	return fmt.Sprintf("measurement service unavailable: %v", e.cause)
-}
-
-func (e serviceUnavailableError) Unwrap() error {
-	return e.cause
-}
-
-func (e serviceUnavailableError) MeasurementServiceUnavailable() bool {
-	return true
-}
-
-type downstreamInvalidRequestError struct {
-	message string
-}
-
-func newDownstreamInvalidRequestError(message string) error {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		message = "measurement service rejected request"
-	}
-
-	return downstreamInvalidRequestError{message: message}
-}
-
-func (e downstreamInvalidRequestError) Error() string {
-	return e.message
-}
-
-func (e downstreamInvalidRequestError) DownstreamInvalidRequestMessage() string {
-	return e.message
 }

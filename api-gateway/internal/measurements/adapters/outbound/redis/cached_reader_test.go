@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	getmeasurements "api_gateway/internal/measurements/application/get_measurements"
-	"api_gateway/internal/measurements/domain"
+	"api_gateway/internal/measurements"
+	getmeasurements "api_gateway/internal/measurements/application"
 	"api_gateway/internal/platform/requestctx"
 	"github.com/stretchr/testify/suite"
 )
@@ -39,7 +39,7 @@ func (s *CachedReaderSuite) TestNewCachedReaderRejectsInvalidArgs() {
 
 func (s *CachedReaderSuite) TestGetMeasurementsReturnsCacheHitAndSkipsInnerReader() {
 	ctx := requestctx.WithValues(context.Background(), "req-1", "corr-1")
-	cachedSeries := domain.MeasurementSeries{AssetID: "asset-1"}
+	cachedSeries := measurements.MeasurementSeries{AssetID: "asset-1"}
 	reader := &stubMeasurementsReader{}
 	cache := &stubMeasurementsCache{
 		series: cachedSeries,
@@ -60,7 +60,7 @@ func (s *CachedReaderSuite) TestGetMeasurementsReturnsCacheHitAndSkipsInnerReade
 func (s *CachedReaderSuite) TestGetMeasurementsReturnsCacheMissStoresValueAndWritesStatus() {
 	ctx := requestctx.WithValues(context.Background(), "req-1", "corr-1")
 	reader := &stubMeasurementsReader{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	cache := &stubMeasurementsCache{}
 
@@ -79,7 +79,7 @@ func (s *CachedReaderSuite) TestGetMeasurementsReturnsCacheMissStoresValueAndWri
 func (s *CachedReaderSuite) TestGetMeasurementsBypassesCacheGetFailure() {
 	ctx := requestctx.WithValues(context.Background(), "req-1", "corr-1")
 	reader := &stubMeasurementsReader{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	cache := &stubMeasurementsCache{
 		getErr: errors.New("redis unavailable"),
@@ -102,7 +102,7 @@ func (s *CachedReaderSuite) TestGetMeasurementsBypassesCacheGetFailure() {
 func (s *CachedReaderSuite) TestGetMeasurementsDoesNotFailWhenCacheSetFails() {
 	ctx := requestctx.WithValues(context.Background(), "req-1", "corr-1")
 	reader := &stubMeasurementsReader{
-		series: domain.MeasurementSeries{AssetID: "asset-1"},
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
 	}
 	cache := &stubMeasurementsCache{
 		setErr: errors.New("redis write failed"),
@@ -127,14 +127,14 @@ func (s *CachedReaderSuite) baseTime() time.Time {
 
 type stubMeasurementsReader struct {
 	calls  int
-	series domain.MeasurementSeries
+	series measurements.MeasurementSeries
 	err    error
 }
 
-func (r *stubMeasurementsReader) GetMeasurements(_ context.Context, assetID string, _, _ time.Time) (domain.MeasurementSeries, error) {
+func (r *stubMeasurementsReader) GetMeasurements(_ context.Context, assetID string, _, _ time.Time) (measurements.MeasurementSeries, error) {
 	r.calls++
 	if r.err != nil {
-		return domain.MeasurementSeries{}, r.err
+		return measurements.MeasurementSeries{}, r.err
 	}
 
 	if r.series.AssetID == "" {
@@ -145,22 +145,22 @@ func (r *stubMeasurementsReader) GetMeasurements(_ context.Context, assetID stri
 }
 
 type stubMeasurementsCache struct {
-	series   domain.MeasurementSeries
+	series   measurements.MeasurementSeries
 	found    bool
 	getErr   error
 	setErr   error
 	setCalls int
 }
 
-func (c *stubMeasurementsCache) Get(_ context.Context, _ string) (domain.MeasurementSeries, bool, error) {
+func (c *stubMeasurementsCache) Get(_ context.Context, _ string) (measurements.MeasurementSeries, bool, error) {
 	if c.getErr != nil {
-		return domain.MeasurementSeries{}, false, c.getErr
+		return measurements.MeasurementSeries{}, false, c.getErr
 	}
 
 	return c.series, c.found, nil
 }
 
-func (c *stubMeasurementsCache) Set(_ context.Context, _ string, value domain.MeasurementSeries, _ time.Duration) error {
+func (c *stubMeasurementsCache) Set(_ context.Context, _ string, value measurements.MeasurementSeries, _ time.Duration) error {
 	c.setCalls++
 	if c.setErr != nil {
 		return c.setErr
