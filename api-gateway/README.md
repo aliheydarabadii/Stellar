@@ -112,7 +112,7 @@ Operational behavior:
 
 - successful HTTP requests are logged with status, duration, request ID, correlation ID, and cache hit or miss
 - `x-request-id` and `x-correlation-id` are propagated to the Measurement Service over gRPC
-- the Redis cached reader applies the five-minute freshness policy; cache hits stay in Redis, and cache misses flow through a circuit-breaker-protected gRPC reader
+- the Redis cached reader applies the five-minute freshness policy; asset-id-only reads cache by asset, while explicit time-range reads cache by exact request window
 - `/readyz` actively checks both Redis and the Measurement Service before returning `200`
 - the outbound Redis decorator writes cache hit, miss, bypass, or not-applicable status into request context for access logging
 
@@ -123,6 +123,8 @@ Endpoint:
 ```text
 GET /assets/{asset_id}/measurements?from=RFC3339&to=RFC3339
 ```
+
+`from` and `to` are optional. When both are omitted, the gateway queries the most recently completed five-minute window and returns only the latest point from that result so asset-id-only reads remain stable and cacheable within the freshness period. When only one bound is omitted, the gateway supplies the other bound with a five-minute default window.
 
 Example response:
 
@@ -144,7 +146,7 @@ Example response:
 - This service is the external REST gateway for measurement reads.
 - It depends on the internal Measurement Service through unary gRPC.
 - Redis stores the five-minute cache entries.
-- Cache keys are based on the exact request identity: `asset_id`, `from`, and `to`.
+- Cache keys are based on `asset_id` alone for asset-id-only reads, and on the exact request identity for explicit time-range reads.
 - Redis read/write failures during request handling are logged and bypassed, but readiness still requires Redis availability because the five-minute freshness contract depends on it.
 
 ## Testing

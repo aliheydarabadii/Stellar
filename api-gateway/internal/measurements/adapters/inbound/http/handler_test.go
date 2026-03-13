@@ -72,15 +72,75 @@ func (s *HTTPSuite) TestHandlerGetMeasurementsRejectsInvalidAssetID() {
 	s.Equal(stdhttp.StatusBadRequest, rec.Code)
 }
 
-func (s *HTTPSuite) TestHandlerGetMeasurementsRejectsMissingTimes() {
-	handler := newTestHandler(s.T(), &fakeMeasurementsClient{}, &fakeMeasurementsCache{}, nil)
+func (s *HTTPSuite) TestHandlerGetMeasurementsDefaultsMissingTimes() {
+	s.setDefaultTimeSource(time.Date(2026, 3, 10, 12, 4, 12, 0, time.UTC))
+	client := &fakeMeasurementsClient{
+		series: measurements.MeasurementSeries{
+			AssetID: "asset-1",
+			Points: []measurements.MeasurementPoint{
+				{
+					Timestamp:   time.Date(2026, 3, 10, 11, 59, 58, 0, time.UTC),
+					Setpoint:    10,
+					ActivePower: 9,
+				},
+				{
+					Timestamp:   time.Date(2026, 3, 10, 11, 59, 59, 0, time.UTC),
+					Setpoint:    11,
+					ActivePower: 10,
+				},
+			},
+		},
+	}
+	handler := newTestHandler(s.T(), client, &fakeMeasurementsCache{}, nil)
 
 	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	s.Equal(stdhttp.StatusBadRequest, rec.Code)
+	s.Equal(stdhttp.StatusOK, rec.Code)
+	s.True(client.from.Equal(time.Date(2026, 3, 10, 11, 55, 0, 0, time.UTC)))
+	s.True(client.to.Equal(time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)))
+
+	var got measurements.MeasurementSeries
+	err := json.Unmarshal(rec.Body.Bytes(), &got)
+	s.Require().NoError(err)
+	s.Len(got.Points, 1)
+	s.Equal(time.Date(2026, 3, 10, 11, 59, 59, 0, time.UTC), got.Points[0].Timestamp)
+}
+
+func (s *HTTPSuite) TestHandlerGetMeasurementsDefaultsMissingFrom() {
+	base := s.baseTime()
+	client := &fakeMeasurementsClient{
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
+	}
+	handler := newTestHandler(s.T(), client, &fakeMeasurementsCache{}, nil)
+
+	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements?to="+base.Add(10*time.Minute).Format(time.RFC3339), nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	s.Equal(stdhttp.StatusOK, rec.Code)
+	s.True(client.from.Equal(base.Add(5 * time.Minute)))
+	s.True(client.to.Equal(base.Add(10 * time.Minute)))
+}
+
+func (s *HTTPSuite) TestHandlerGetMeasurementsDefaultsMissingTo() {
+	base := s.baseTime()
+	client := &fakeMeasurementsClient{
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
+	}
+	handler := newTestHandler(s.T(), client, &fakeMeasurementsCache{}, nil)
+
+	req := httptest.NewRequest(stdhttp.MethodGet, "/assets/asset-1/measurements?from="+base.Format(time.RFC3339), nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	s.Equal(stdhttp.StatusOK, rec.Code)
+	s.True(client.from.Equal(base))
+	s.True(client.to.Equal(base.Add(5 * time.Minute)))
 }
 
 func (s *HTTPSuite) TestHandlerGetMeasurementsRejectsInvalidRange() {
@@ -285,6 +345,47 @@ func (s *HTTPSuite) TestHandlerCachesIdenticalRequestsWithinTTL() {
 	s.Equal(1, client.calls)
 }
 
+func (s *HTTPSuite) TestHandlerCachesAssetOnlyRequestsWithinTTLAcrossDefaultWindows() {
+	redisServer := miniredis.RunT(s.T())
+	cache, err := redisadapter.NewCache(context.Background(), redisServer.Addr(), "", "", 0)
+	s.Require().NoError(err)
+	s.T().Cleanup(func() {
+		if closeErr := cache.Close(); closeErr != nil {
+			s.T().Errorf("close redis cache: %v", closeErr)
+		}
+	})
+
+	client := &countingMeasurementsClient{
+		series: measurements.MeasurementSeries{
+			AssetID: "asset-1",
+			Points: []measurements.MeasurementPoint{
+				{
+					Timestamp:   time.Date(2026, 3, 10, 11, 59, 59, 0, time.UTC),
+					Setpoint:    42,
+					ActivePower: 41,
+				},
+			},
+		},
+	}
+	handler := newTestHandler(s.T(), client, cache, nil)
+	server := httptest.NewServer(handler)
+	s.T().Cleanup(server.Close)
+
+	s.setDefaultTimeSource(time.Date(2026, 3, 10, 12, 4, 12, 0, time.UTC))
+	resp, err := stdhttp.Get(server.URL + "/assets/asset-1/measurements")
+	s.Require().NoError(err)
+	s.Equal(stdhttp.StatusOK, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	s.setDefaultTimeSource(time.Date(2026, 3, 10, 12, 8, 12, 0, time.UTC))
+	resp, err = stdhttp.Get(server.URL + "/assets/asset-1/measurements")
+	s.Require().NoError(err)
+	s.Equal(stdhttp.StatusOK, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	s.Equal(1, client.calls)
+}
+
 func (s *HTTPSuite) TestHealthHandlerHealthzAlwaysOK() {
 	handler := NewHealthHandler(func(context.Context) error {
 		return errors.New("should not be called")
@@ -342,6 +443,17 @@ func (s *HTTPSuite) baseTime() time.Time {
 	return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 }
 
+func (s *HTTPSuite) setDefaultTimeSource(now time.Time) {
+	previous := defaultTimeSource
+	defaultTimeSource = func() time.Time {
+		return now
+	}
+
+	s.T().Cleanup(func() {
+		defaultTimeSource = previous
+	})
+}
+
 func newTestHandler(t *testing.T, reader measurements.MeasurementsReader, cache application.MeasurementsCache, logger *slog.Logger) stdhttp.Handler {
 	t.Helper()
 
@@ -380,11 +492,17 @@ func (h fakeQueryHandler) Handle(_ context.Context, qry application.Query) (meas
 type fakeMeasurementsClient struct {
 	series        measurements.MeasurementSeries
 	err           error
+	assetID       string
+	from          time.Time
+	to            time.Time
 	requestID     string
 	correlationID string
 }
 
 func (f *fakeMeasurementsClient) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
+	f.assetID = assetID
+	f.from = from
+	f.to = to
 	f.requestID = requestctx.RequestIDFromContext(ctx)
 	f.correlationID = requestctx.CorrelationIDFromContext(ctx)
 

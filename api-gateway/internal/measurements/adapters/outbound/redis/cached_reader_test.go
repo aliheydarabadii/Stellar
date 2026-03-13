@@ -121,6 +121,25 @@ func (s *CachedReaderSuite) TestGetMeasurementsDoesNotFailWhenCacheSetFails() {
 	s.Equal(requestctx.CacheStatusMiss, requestctx.CacheStatusFromContext(ctx))
 }
 
+func (s *CachedReaderSuite) TestGetMeasurementsUsesAssetOnlyKeyForLatestOnlyRequests() {
+	ctx := requestctx.WithValues(context.Background(), "req-1", "corr-1")
+	requestctx.SetLatestMeasurementsRead(ctx)
+
+	reader := &stubMeasurementsReader{
+		series: measurements.MeasurementSeries{AssetID: "asset-1"},
+	}
+	cache := &stubMeasurementsCache{}
+
+	decorator, err := NewCachedReader(reader, cache, 5*time.Minute, MeasurementsKey, nil)
+	s.Require().NoError(err)
+
+	_, err = decorator.GetMeasurements(ctx, "asset-1", s.baseTime(), s.baseTime().Add(time.Minute))
+	s.Require().NoError(err)
+
+	s.Equal(LatestMeasurementsKey("asset-1"), cache.lastGetKey)
+	s.Equal(LatestMeasurementsKey("asset-1"), cache.lastSetKey)
+}
+
 func (s *CachedReaderSuite) baseTime() time.Time {
 	return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 }
@@ -145,14 +164,17 @@ func (r *stubMeasurementsReader) GetMeasurements(_ context.Context, assetID stri
 }
 
 type stubMeasurementsCache struct {
-	series   measurements.MeasurementSeries
-	found    bool
-	getErr   error
-	setErr   error
-	setCalls int
+	series     measurements.MeasurementSeries
+	found      bool
+	getErr     error
+	setErr     error
+	setCalls   int
+	lastGetKey string
+	lastSetKey string
 }
 
-func (c *stubMeasurementsCache) Get(_ context.Context, _ string) (measurements.MeasurementSeries, bool, error) {
+func (c *stubMeasurementsCache) Get(_ context.Context, key string) (measurements.MeasurementSeries, bool, error) {
+	c.lastGetKey = key
 	if c.getErr != nil {
 		return measurements.MeasurementSeries{}, false, c.getErr
 	}
@@ -160,8 +182,9 @@ func (c *stubMeasurementsCache) Get(_ context.Context, _ string) (measurements.M
 	return c.series, c.found, nil
 }
 
-func (c *stubMeasurementsCache) Set(_ context.Context, _ string, value measurements.MeasurementSeries, _ time.Duration) error {
+func (c *stubMeasurementsCache) Set(_ context.Context, key string, value measurements.MeasurementSeries, _ time.Duration) error {
 	c.setCalls++
+	c.lastSetKey = key
 	if c.setErr != nil {
 		return c.setErr
 	}

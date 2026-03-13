@@ -15,3 +15,10 @@ func MeasurementsKey(assetID string, from, to time.Time) string {
 		to.UTC().Format(time.RFC3339Nano),
 	)
 }
+
+func LatestMeasurementsKey(assetID string) string {
+	return fmt.Sprintf(
+		"measurements:latest:%s",
+		url.QueryEscape(strings.TrimSpace(assetID)),
+	)
+}

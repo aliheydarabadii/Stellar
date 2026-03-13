@@ -45,7 +45,7 @@ func NewCachedReader(
 }
 
 func (r *CachedReader) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) (measurements.MeasurementSeries, error) {
-	cacheKey := r.buildCacheKey(assetID, from, to)
+	cacheKey := r.cacheKey(ctx, assetID, from, to)
 
 	series, found, err := r.cache.Get(ctx, cacheKey)
 	if err != nil {
@@ -78,4 +78,12 @@ func (r *CachedReader) observeCacheFailure(ctx context.Context, operation, key s
 	}
 
 	r.observer.CacheOperationFailed(ctx, operation, key, err)
+}
+
+func (r *CachedReader) cacheKey(ctx context.Context, assetID string, from, to time.Time) string {
+	if requestctx.IsLatestMeasurementsRead(ctx) {
+		return LatestMeasurementsKey(assetID)
+	}
+
+	return r.buildCacheKey(assetID, from, to)
 }

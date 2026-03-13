@@ -28,10 +28,11 @@ const (
 )
 
 type requestState struct {
-	requestID     string
-	correlationID string
-	cacheStatus   string
-	route         string
+	requestID              string
+	correlationID          string
+	cacheStatus            string
+	route                  string
+	latestMeasurementsRead bool
 }
 
 func Normalize(requestID, correlationID string) (string, string) {
@@ -108,6 +109,20 @@ func RouteFromContext(ctx context.Context) string {
 	}
 
 	return ""
+}
+
+func SetLatestMeasurementsRead(ctx context.Context) {
+	if state := stateFromContext(ctx); state != nil {
+		state.latestMeasurementsRead = true
+	}
+}
+
+func IsLatestMeasurementsRead(ctx context.Context) bool {
+	if state := stateFromContext(ctx); state != nil {
+		return state.latestMeasurementsRead
+	}
+
+	return false
 }
 
 func stateFromContext(ctx context.Context) *requestState {
