@@ -1,6 +1,7 @@
 package application
 
 import (
+	measurementsmocks "api_gateway/internal/measurements/adapters/mocks"
 	"context"
 	"errors"
 	"fmt"
@@ -8,8 +9,6 @@ import (
 	"time"
 
 	"api_gateway/internal/measurements"
-	measurementsmocks "api_gateway/internal/measurements/mocks"
-
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )
