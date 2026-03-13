@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-var _ measurements.QueryHandler = UseCase{}
-
 type UseCase struct {
 	readModel     measurements.MeasurementsReadModel
 	maxQueryRange time.Duration

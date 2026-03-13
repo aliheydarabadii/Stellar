@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
-	getmeasurements "stellar/internal/measurements"
+	getmeasurements "stellar/internal/measurements/application"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,14 +39,18 @@ type requestIDContextKey struct{}
 type Server struct {
 	measurementsv1.UnimplementedMeasurementServiceServer
 
-	queryHandler getmeasurements.QueryHandler
+	queryHandler func() getmeasurements.UseCase
 }
 
-func NewServer(queryHandler getmeasurements.QueryHandler) *Server {
-	return &Server{queryHandler: queryHandler}
+func NewServer(queryHandler getmeasurements.UseCase) *Server {
+	return &Server{
+		queryHandler: func() getmeasurements.UseCase {
+			return queryHandler
+		},
+	}
 }
 
-func NewTransport(logger *slog.Logger, queryHandler getmeasurements.QueryHandler, cfg TransportConfig) *grpcpkg.Server {
+func NewTransport(logger *slog.Logger, queryHandler getmeasurements.UseCase, cfg TransportConfig) *grpcpkg.Server {
 	server := grpcpkg.NewServer(
 		grpcpkg.ConnectionTimeout(cfg.ConnectionTimeout),
 		grpcpkg.MaxRecvMsgSize(cfg.MaxRecvMsgSizeBytes),
@@ -75,12 +79,14 @@ func (s *Server) GetMeasurements(ctx context.Context, req *measurementsv1.GetMea
 		return nil, status.Error(codes.Unavailable, "measurements read model unavailable")
 	}
 
+	queryHandler := s.queryHandler()
+
 	qry, err := toQuery(req)
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := s.queryHandler.Handle(ctx, qry)
+	result, err := queryHandler.Handle(ctx, qry)
 	if err != nil {
 		return nil, mapQueryError(err)
 	}
