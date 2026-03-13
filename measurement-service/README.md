@@ -6,8 +6,8 @@ The Measurement Service is the query-side microservice for historical asset meas
 
 The service follows a clean-architecture-inspired, CQRS query-side layout with pragmatic, lightweight DDD boundaries:
 
-- `internal/measurements/domain`: measurement entities returned by the query side
-- `internal/measurements/application/get_measurements`: query DTO, ports, errors, and use case
+- `internal/measurements`: feature-level measurement types and read-model port
+- `internal/measurements/application`: query DTO, validation, and the `GetMeasurementsHandler`
 - `internal/measurements/adapters/inbound/grpc`: internal gRPC transport and mapping
 - `internal/measurements/adapters/outbound/influxdb`: InfluxDB-backed read model adapter
 - `internal/platform/config`: environment-driven runtime configuration
@@ -32,15 +32,13 @@ cmd/
 
 internal/
   measurements/
-    domain/
-      measurement.go
+    measurement.go
+    ports.go
 
     application/
-      get_measurements/
-        usecase.go
-        ports.go
-        query.go
-        errors.go
+      get_measurements_handler.go
+      query.go
+      errors.go
 
     adapters/
       inbound/
@@ -123,7 +121,7 @@ The service starts:
 - a gRPC server on `GRPC_LISTEN_ADDR`
 - an HTTP health server with `/healthz` and `/readyz` on `HEALTH_LISTEN_ADDR`
 
-`cmd/measurement-service/main.go` acts as the composition root: it loads platform config, constructs the logger, wires the InfluxDB read model and `get_measurements` use case, and then starts the gRPC and health servers.
+`cmd/measurement-service/main.go` acts as the composition root: it loads platform config, constructs the logger, wires the InfluxDB read model and the `GetMeasurementsHandler`, and then starts the gRPC and health servers.
 
 The gRPC server includes panic recovery and returns `Internal` instead of crashing the process if a handler panics.
 It also accepts `x-request-id` or `x-correlation-id` gRPC metadata, propagates the request ID through the service context, echoes it back as `x-request-id`, and includes it in request logs.

@@ -49,7 +49,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	influxClient := influxdb2.NewClient(cfg.InfluxURL, cfg.InfluxToken)
 	defer influxClient.Close()
 
-	getMeasurements, err := getmeasurements.NewUseCaseWithConfig(
+	getMeasurements, err := getmeasurements.NewGetMeasurementsHandlerWithConfig(
 		influxdb.NewReadModel(influxClient, cfg.InfluxOrg, cfg.InfluxBucket, cfg.QueryTimeout, influxdb.CircuitBreakerConfig{
 			FailureThreshold:    cfg.InfluxCircuitBreakerFailureThreshold,
 			OpenTimeout:         cfg.InfluxCircuitBreakerOpenTimeout,

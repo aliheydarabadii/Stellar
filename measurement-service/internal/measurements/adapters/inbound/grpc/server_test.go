@@ -36,10 +36,10 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsRequestAndResponse() {
 		},
 	}
 
-	useCase, err := application.NewUseCase(readModel)
+	handler, err := application.NewGetMeasurementsHandler(readModel)
 	s.Require().NoError(err)
 
-	server := NewServer(useCase)
+	server := NewServer(handler)
 
 	resp, err := server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "asset-1",
@@ -60,10 +60,10 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsRequestAndResponse() {
 func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidInput() {
 	now := time.Now().UTC()
 
-	useCase, err := application.NewUseCase(&capturingReadModel{})
+	handler, err := application.NewGetMeasurementsHandler(&capturingReadModel{})
 	s.Require().NoError(err)
 
-	server := NewServer(useCase)
+	server := NewServer(handler)
 
 	_, err = server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "",
@@ -78,10 +78,10 @@ func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidInput() {
 func (s *GRPCServerSuite) TestGetMeasurementsMapsReadModelUnavailable() {
 	now := time.Now().UTC()
 
-	useCase, err := application.NewUseCase(&capturingReadModel{err: application.ErrReadModelUnavailable})
+	handler, err := application.NewGetMeasurementsHandler(&capturingReadModel{err: application.ErrReadModelUnavailable})
 	s.Require().NoError(err)
 
-	server := NewServer(useCase)
+	server := NewServer(handler)
 
 	_, err = server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "asset-1",
@@ -94,10 +94,10 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsReadModelUnavailable() {
 }
 
 func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidRequestShape() {
-	useCase, err := application.NewUseCase(&capturingReadModel{})
+	handler, err := application.NewGetMeasurementsHandler(&capturingReadModel{})
 	s.Require().NoError(err)
 
-	server := NewServer(useCase)
+	server := NewServer(handler)
 
 	now := time.Now().UTC()
 	invalidTimestamp := &timestamppb.Timestamp{Seconds: 1, Nanos: 1_000_000_000}
@@ -148,12 +148,12 @@ func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidRequestShape() {
 func (s *GRPCServerSuite) TestGetMeasurementsRejectsRangeLargerThanConfiguredLimit() {
 	now := time.Now().UTC().Truncate(time.Second)
 
-	useCase, err := application.NewUseCaseWithConfig(&capturingReadModel{}, application.Config{
+	handler, err := application.NewGetMeasurementsHandlerWithConfig(&capturingReadModel{}, application.Config{
 		MaxQueryRange: 15 * time.Minute,
 	})
 	s.Require().NoError(err)
 
-	server := NewServer(useCase)
+	server := NewServer(handler)
 
 	_, err = server.GetMeasurements(context.Background(), &measurementsv1.GetMeasurementsRequest{
 		AssetId: "asset-1",

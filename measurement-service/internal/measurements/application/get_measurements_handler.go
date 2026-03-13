@@ -8,34 +8,34 @@ import (
 	"time"
 )
 
-type UseCase struct {
+type GetMeasurementsHandler struct {
 	readModel     measurements.MeasurementsReadModel
 	maxQueryRange time.Duration
 }
 
-func NewUseCase(readModel measurements.MeasurementsReadModel) (UseCase, error) {
-	return NewUseCaseWithConfig(readModel, Config{})
+func NewGetMeasurementsHandler(readModel measurements.MeasurementsReadModel) (GetMeasurementsHandler, error) {
+	return NewGetMeasurementsHandlerWithConfig(readModel, Config{})
 }
 
 type Config struct {
 	MaxQueryRange time.Duration
 }
 
-func NewUseCaseWithConfig(readModel measurements.MeasurementsReadModel, cfg Config) (UseCase, error) {
+func NewGetMeasurementsHandlerWithConfig(readModel measurements.MeasurementsReadModel, cfg Config) (GetMeasurementsHandler, error) {
 	if readModel == nil {
-		return UseCase{}, ErrReadModelUnavailable
+		return GetMeasurementsHandler{}, ErrReadModelUnavailable
 	}
 	if cfg.MaxQueryRange <= 0 {
 		cfg.MaxQueryRange = DefaultMaxQueryRange
 	}
 
-	return UseCase{
+	return GetMeasurementsHandler{
 		readModel:     readModel,
 		maxQueryRange: cfg.MaxQueryRange,
 	}, nil
 }
 
-func (u UseCase) Handle(ctx context.Context, qry Query) (measurements.MeasurementSeries, error) {
+func (h GetMeasurementsHandler) Handle(ctx context.Context, qry Query) (measurements.MeasurementSeries, error) {
 	assetID := strings.TrimSpace(qry.AssetID)
 	from := qry.From.UTC()
 	to := qry.To.UTC()
@@ -47,13 +47,13 @@ func (u UseCase) Handle(ctx context.Context, qry Query) (measurements.Measuremen
 		return measurements.MeasurementSeries{}, ErrTimestampZero
 	case qry.From.After(qry.To):
 		return measurements.MeasurementSeries{}, ErrInvalidTimeRange
-	case u.maxQueryRange > 0 && qry.To.Sub(qry.From) > u.maxQueryRange:
-		return measurements.MeasurementSeries{}, fmt.Errorf("%w: max query range is %s", ErrQueryRangeTooLarge, u.maxQueryRange)
-	case u.readModel == nil:
+	case h.maxQueryRange > 0 && qry.To.Sub(qry.From) > h.maxQueryRange:
+		return measurements.MeasurementSeries{}, fmt.Errorf("%w: max query range is %s", ErrQueryRangeTooLarge, h.maxQueryRange)
+	case h.readModel == nil:
 		return measurements.MeasurementSeries{}, ErrReadModelUnavailable
 	}
 
-	points, err := u.readModel.GetMeasurements(ctx, assetID, from, to)
+	points, err := h.readModel.GetMeasurements(ctx, assetID, from, to)
 	if err != nil {
 		return measurements.MeasurementSeries{}, err
 	}

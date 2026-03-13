@@ -39,18 +39,18 @@ type requestIDContextKey struct{}
 type Server struct {
 	measurementsv1.UnimplementedMeasurementServiceServer
 
-	queryHandler func() getmeasurements.UseCase
+	queryHandler func() getmeasurements.GetMeasurementsHandler
 }
 
-func NewServer(queryHandler getmeasurements.UseCase) *Server {
+func NewServer(queryHandler getmeasurements.GetMeasurementsHandler) *Server {
 	return &Server{
-		queryHandler: func() getmeasurements.UseCase {
+		queryHandler: func() getmeasurements.GetMeasurementsHandler {
 			return queryHandler
 		},
 	}
 }
 
-func NewTransport(logger *slog.Logger, queryHandler getmeasurements.UseCase, cfg TransportConfig) *grpcpkg.Server {
+func NewTransport(logger *slog.Logger, queryHandler getmeasurements.GetMeasurementsHandler, cfg TransportConfig) *grpcpkg.Server {
 	server := grpcpkg.NewServer(
 		grpcpkg.ConnectionTimeout(cfg.ConnectionTimeout),
 		grpcpkg.MaxRecvMsgSize(cfg.MaxRecvMsgSizeBytes),

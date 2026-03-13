@@ -60,12 +60,12 @@ func (s *GRPCIntegrationSuite) TestGetMeasurements() {
 	})
 
 	readModel := influxdb.NewReadModel(influx.Client, influx.Org, influx.Bucket, 10*time.Second, influxdb.CircuitBreakerConfig{})
-	useCase, err := getmeasurements.NewUseCase(readModel)
+	handler, err := getmeasurements.NewGetMeasurementsHandler(readModel)
 	s.Require().NoError(err)
 
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	measurementsv1.RegisterMeasurementServiceServer(server, NewServer(useCase))
+	measurementsv1.RegisterMeasurementServiceServer(server, NewServer(handler))
 	s.T().Cleanup(server.Stop)
 
 	go func() {
