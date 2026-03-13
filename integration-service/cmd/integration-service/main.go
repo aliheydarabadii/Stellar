@@ -12,11 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	configplatform "stellar/internal/platform/config"
 	healthplatform "stellar/internal/platform/health"
 	loggingplatform "stellar/internal/platform/logging"
-	metricsplatform "stellar/internal/platform/metrics"
 	tracingplatform "stellar/internal/platform/tracing"
 	workeradapter "stellar/internal/telemetry/adapters/inbound/worker"
 	influxdbadapter "stellar/internal/telemetry/adapters/outbound/influxdb"
@@ -28,6 +30,21 @@ const (
 	serviceName          = "integration-service"
 	defaultTraceShutdown = 5 * time.Second
 )
+
+var (
+	metricsRegistry = prometheus.NewRegistry()
+	metricsHandler  = promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{})
+)
+
+func init() {
+	metricsRegistry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+	workeradapter.MustRegisterMetrics(metricsRegistry)
+	modbusadapter.MustRegisterMetrics(metricsRegistry)
+	influxdbadapter.MustRegisterMetrics(metricsRegistry)
+}
 
 func main() {
 	bootstrapLogger := loggingplatform.NewDefaultLogger().With("service", serviceName)
@@ -71,7 +88,6 @@ func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (r
 
 	addressMapper := modbusadapter.NewAddressMapper()
 	decoder := modbusadapter.NewDecoder()
-	metrics := metricsplatform.NewMetrics()
 	tracer := otel.Tracer(serviceName)
 	readiness, err := healthplatform.NewReadiness(cfg.ReadinessStaleAfter)
 	if err != nil {
@@ -83,7 +99,7 @@ func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (r
 	if err != nil {
 		return fmt.Errorf("create modbus source: %w", err)
 	}
-	instrumentedSource := metricsplatform.InstrumentTelemetrySource(source, metrics, tracer)
+	instrumentedSource := modbusadapter.InstrumentTelemetrySource(source, tracer)
 
 	pointMapper := influxdbadapter.NewPointMapperWithAssetType(string(cfg.AssetType))
 	influxConfig, err := buildInfluxConfig(cfg)
@@ -104,19 +120,19 @@ func run(ctx context.Context, cfg configplatform.Config, logger *slog.Logger) (r
 			logger.Error("failed to close influxdb repository", "error", err)
 		}
 	}()
-	instrumentedRepository := metricsplatform.InstrumentMeasurementRepository(repository, metrics, tracer)
+	instrumentedRepository := influxdbadapter.InstrumentMeasurementRepository(repository, tracer)
 
 	collectTelemetry, err := collecttelemetry.NewCollectTelemetryHandler(cfg.AssetID, instrumentedSource, instrumentedRepository)
 	if err != nil {
 		return fmt.Errorf("create collect telemetry handler: %w", err)
 	}
 
-	worker, err := workeradapter.NewRunner(cfg.PollInterval, collectTelemetry.Handle, logger, metrics, readiness, tracer)
+	worker, err := workeradapter.NewRunner(cfg.PollInterval, collectTelemetry.Handle, logger, readiness, tracer)
 	if err != nil {
 		return fmt.Errorf("create worker: %w", err)
 	}
 
-	httpServer, err := healthplatform.NewServer(httpAddress(cfg.HTTPPort), logger, metrics, readiness)
+	httpServer, err := healthplatform.NewServer(httpAddress(cfg.HTTPPort), logger, metricsHandler, readiness)
 	if err != nil {
 		return fmt.Errorf("create http server: %w", err)
 	}

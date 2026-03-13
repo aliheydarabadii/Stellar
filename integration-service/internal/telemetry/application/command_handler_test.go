@@ -3,23 +3,22 @@ package application_test
 import (
 	"context"
 	"errors"
+	"stellar/internal/telemetry/adapters/mocks"
 	"testing"
 	"time"
 
-	telemetry "stellar/internal/telemetry"
-	collecttelemetry "stellar/internal/telemetry/application"
-	collecttelemetrymocks "stellar/internal/telemetry/mocks"
-
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	telemetry "stellar/internal/telemetry"
+	collecttelemetry "stellar/internal/telemetry/application"
 )
 
 type CollectTelemetryHandlerSuite struct {
 	suite.Suite
 	ctx         context.Context
 	collectedAt time.Time
-	source      *collecttelemetrymocks.TelemetrySource
-	repository  *collecttelemetrymocks.MeasurementRepository
+	source      *mocks.TelemetrySource
+	repository  *mocks.MeasurementRepository
 	handler     collecttelemetry.CollectTelemetryHandler
 }
 
@@ -32,8 +31,8 @@ func TestCollectTelemetryHandlerSuite(t *testing.T) {
 func (s *CollectTelemetryHandlerSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.collectedAt = time.Date(2026, time.March, 9, 12, 0, 0, 0, time.UTC)
-	s.source = collecttelemetrymocks.NewTelemetrySource(s.T())
-	s.repository = collecttelemetrymocks.NewMeasurementRepository(s.T())
+	s.source = mocks.NewTelemetrySource(s.T())
+	s.repository = mocks.NewMeasurementRepository(s.T())
 	var err error
 	s.handler, err = collecttelemetry.NewCollectTelemetryHandler(telemetry.DefaultAssetID, s.source, s.repository)
 	s.Require().NoError(err)

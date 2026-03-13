@@ -1,4 +1,4 @@
-package metrics
+package influxdb
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 
 type InstrumentationTestSuite struct {
 	suite.Suite
-	metrics  *Metrics
 	tracer   trace.Tracer
 	recorder *tracetest.SpanRecorder
 }
@@ -25,49 +24,22 @@ func TestInstrumentationTestSuite(t *testing.T) {
 }
 
 func (s *InstrumentationTestSuite) SetupTest() {
-	s.metrics = NewMetrics()
+	resetMetrics()
 	s.tracer, s.recorder = newTestTracer()
 }
 
-func (s *InstrumentationTestSuite) TestInstrumentTelemetrySourceObservesReadDuration() {
-	source := InstrumentTelemetrySource(stubTelemetrySource{
-		reading: telemetry.TelemetryReading{
-			Setpoint:    100,
-			ActivePower: 50,
-		},
-	}, s.metrics, s.tracer)
-
-	_, err := source.Read(context.Background())
-	s.Require().NoError(err)
-
-	s.Equal(uint64(1), histogramSampleCount(s.T(), s.metrics.sourceReadDuration))
-
-	spans := s.recorder.Ended()
-	s.Require().Len(spans, 1)
-	s.Equal("telemetry.source.read", spans[0].Name())
-}
-
 func (s *InstrumentationTestSuite) TestInstrumentMeasurementRepositoryObservesPersistenceDuration() {
-	repository := InstrumentMeasurementRepository(stubMeasurementRepository{}, s.metrics, s.tracer)
+	repository := InstrumentMeasurementRepository(stubMeasurementRepository{}, s.tracer)
 
 	measurement, err := telemetry.NewMeasurement(telemetry.DefaultAssetID, 100, 50, time.Now().UTC())
 	s.Require().NoError(err)
 
 	s.Require().NoError(repository.Save(context.Background(), measurement))
-	s.Equal(uint64(1), histogramSampleCount(s.T(), s.metrics.persistenceDuration))
+	s.Equal(uint64(1), histogramSampleCount(s.T(), persistenceDuration))
 
 	spans := s.recorder.Ended()
 	s.Require().Len(spans, 1)
 	s.Equal("telemetry.persistence.save", spans[0].Name())
-}
-
-type stubTelemetrySource struct {
-	reading telemetry.TelemetryReading
-	err     error
-}
-
-func (s stubTelemetrySource) Read(_ context.Context) (telemetry.TelemetryReading, error) {
-	return s.reading, s.err
 }
 
 type stubMeasurementRepository struct {

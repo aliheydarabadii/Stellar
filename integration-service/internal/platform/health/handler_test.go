@@ -9,8 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/suite"
-	metricsplatform "stellar/internal/platform/metrics"
+	influxdbadapter "stellar/internal/telemetry/adapters/outbound/influxdb"
+	modbusadapter "stellar/internal/telemetry/adapters/outbound/modbus"
 )
 
 type HTTPServerTestSuite struct {
@@ -27,20 +31,17 @@ func (s *HTTPServerTestSuite) SetupTest() {
 }
 
 func (s *HTTPServerTestSuite) TestServerExposesMetricsEndpoint() {
-	metrics := metricsplatform.NewMetrics()
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+	modbusadapter.MustRegisterMetrics(registry)
+	influxdbadapter.MustRegisterMetrics(registry)
 	readiness, err := NewReadiness(time.Minute)
 	s.Require().NoError(err)
 
-	collectedAt := time.Date(2026, time.March, 10, 12, 0, 0, 0, time.UTC)
-	metrics.RecordAttempt(collectedAt)
-	metrics.RecordSuccess(collectedAt)
-	readiness.MarkSuccess(collectedAt)
-	metrics.RecordValidationFailure()
-	metrics.RecordFailure()
-	metrics.RecordSourceFailure()
-	metrics.RecordPersistenceFailure()
-
-	server, err := NewServer(":8080", s.logger, metrics, readiness)
+	server, err := NewServer(":8080", s.logger, promhttp.HandlerFor(registry, promhttp.HandlerOpts{}), readiness)
 	s.Require().NoError(err)
 
 	recorder := httptest.NewRecorder()
@@ -52,17 +53,8 @@ func (s *HTTPServerTestSuite) TestServerExposesMetricsEndpoint() {
 	s.Assert().True(strings.HasPrefix(recorder.Header().Get("Content-Type"), "text/plain; version=0.0.4"))
 
 	body := recorder.Body.String()
-	s.assertContains(body, "integration_service_telemetry_collection_attempts_total")
-	s.assertContains(body, "integration_service_telemetry_collection_success_total")
-	s.assertContains(body, "integration_service_telemetry_collection_validation_failures_total")
-	s.assertContains(body, "integration_service_telemetry_collection_failures_total")
-	s.assertContains(body, "integration_service_telemetry_source_failures_total")
-	s.assertContains(body, "integration_service_telemetry_persistence_failures_total")
-	s.assertContains(body, "integration_service_telemetry_collection_duration_seconds")
 	s.assertContains(body, "integration_service_telemetry_source_read_duration_seconds")
 	s.assertContains(body, "integration_service_telemetry_persistence_duration_seconds")
-	s.assertContains(body, "integration_service_telemetry_last_attempt_timestamp_seconds")
-	s.assertContains(body, "integration_service_telemetry_last_success_timestamp_seconds")
 	s.assertContains(body, "go_gc_duration_seconds")
 }
 
@@ -70,7 +62,7 @@ func (s *HTTPServerTestSuite) TestServerReadyzRequiresRecentSuccessfulCollection
 	readiness, err := NewReadiness(time.Minute)
 	s.Require().NoError(err)
 
-	server, err := NewServer(":8080", s.logger, metricsplatform.NewMetrics(), readiness)
+	server, err := NewServer(":8080", s.logger, http.NotFoundHandler(), readiness)
 	s.Require().NoError(err)
 
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
@@ -91,7 +83,7 @@ func (s *HTTPServerTestSuite) TestServerReadyzFailsWhenSuccessIsStale() {
 	s.Require().NoError(err)
 	readiness.MarkSuccess(time.Now().UTC().Add(-time.Second))
 
-	server, err := NewServer(":8080", s.logger, metricsplatform.NewMetrics(), readiness)
+	server, err := NewServer(":8080", s.logger, http.NotFoundHandler(), readiness)
 	s.Require().NoError(err)
 
 	recorder := httptest.NewRecorder()

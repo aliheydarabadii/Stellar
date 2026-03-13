@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	healthplatform "stellar/internal/platform/health"
-	metricsplatform "stellar/internal/platform/metrics"
 	collecttelemetry "stellar/internal/telemetry/application"
 
 	"github.com/stretchr/testify/suite"
@@ -25,9 +26,9 @@ import (
 
 type TickerWorkerTestSuite struct {
 	suite.Suite
-	logger    *slog.Logger
-	metrics   *metricsplatform.Metrics
-	readiness *healthplatform.Readiness
+	logger         *slog.Logger
+	metricsHandler http.Handler
+	readiness      *healthplatform.Readiness
 }
 
 func TestTickerWorkerTestSuite(t *testing.T) {
@@ -36,7 +37,10 @@ func TestTickerWorkerTestSuite(t *testing.T) {
 
 func (s *TickerWorkerTestSuite) SetupTest() {
 	s.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	s.metrics = metricsplatform.NewMetrics()
+	resetMetrics()
+	registry := prometheus.NewRegistry()
+	MustRegisterMetrics(registry)
+	s.metricsHandler = promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
 
 	readiness, err := healthplatform.NewReadiness(time.Minute)
 	s.Require().NoError(err)
@@ -61,7 +65,7 @@ func (s *TickerWorkerTestSuite) TestTickerWorkerStartCreatesCommandWithTimestamp
 		return nil
 	}
 
-	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.metrics, s.readiness, nil)
+	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.readiness, nil)
 	s.Require().NoError(err)
 
 	before := time.Now().UTC()
@@ -102,7 +106,7 @@ func (s *TickerWorkerTestSuite) TestTickerWorkerStartSurvivesHandlerErrors() {
 		return errors.Join(collecttelemetry.ErrTelemetrySource, errors.New("handler failed"))
 	}
 
-	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.metrics, s.readiness, nil)
+	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.readiness, nil)
 	s.Require().NoError(err)
 
 	s.runWorker(ctx, worker)
@@ -128,7 +132,7 @@ func (s *TickerWorkerTestSuite) TestTickerWorkerStartCreatesTraceSpan() {
 		return nil
 	}
 
-	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.metrics, s.readiness, tracer)
+	worker, err := NewRunner(5*time.Millisecond, handler, s.logger, s.readiness, tracer)
 	s.Require().NoError(err)
 
 	s.runWorker(ctx, worker)
@@ -159,7 +163,7 @@ func (s *TickerWorkerTestSuite) scrapeMetrics() string {
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	s.metrics.ServeHTTP(recorder, request)
+	s.metricsHandler.ServeHTTP(recorder, request)
 
 	return recorder.Body.String()
 }

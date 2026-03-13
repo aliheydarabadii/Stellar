@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	metricsplatform "stellar/internal/platform/metrics"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -18,13 +16,13 @@ type HTTPServer interface {
 }
 
 type Server struct {
-	logger    *slog.Logger
-	metrics   *metricsplatform.Metrics
-	readiness *Readiness
-	server    *http.Server
+	logger         *slog.Logger
+	metricsHandler http.Handler
+	readiness      *Readiness
+	server         *http.Server
 }
 
-func NewServer(addr string, logger *slog.Logger, metrics *metricsplatform.Metrics, readiness *Readiness) (*Server, error) {
+func NewServer(addr string, logger *slog.Logger, metricsHandler http.Handler, readiness *Readiness) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("http server address must not be empty")
 	}
@@ -33,15 +31,17 @@ func NewServer(addr string, logger *slog.Logger, metrics *metricsplatform.Metric
 		logger = slog.Default()
 	}
 
-	if metrics == nil {
-		metrics = metricsplatform.NewMetrics()
+	if metricsHandler == nil {
+		metricsHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "metrics unavailable", http.StatusInternalServerError)
+		})
 	}
 
 	server := &Server{
-		logger:    logger,
-		metrics:   metrics,
-		readiness: readiness,
-		server:    &http.Server{Addr: addr},
+		logger:         logger,
+		metricsHandler: metricsHandler,
+		readiness:      readiness,
+		server:         &http.Server{Addr: addr},
 	}
 	server.server.Handler = server.newMux()
 
@@ -98,7 +98,7 @@ func (s *Server) newMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", s.readyz)
-	mux.Handle("/metrics", s.metrics)
+	mux.Handle("/metrics", s.metricsHandler)
 
 	return mux
 }

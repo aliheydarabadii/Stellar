@@ -19,9 +19,9 @@ The ownership model is:
 - `internal/telemetry/ports.go`: feature-level source and repository ports plus the raw `TelemetryReading` contract
 - `internal/telemetry/mocks`: mockery-style test doubles for feature ports
 - `adapters/inbound/worker`: the polling loop that triggers collection
-- `adapters/outbound/modbus`: Modbus TCP telemetry source
-- `adapters/outbound/influxdb`: InfluxDB measurement repository
-- `platform`: operational concerns such as config, logging, health, metrics, and tracing
+- `adapters/outbound/modbus`: Modbus TCP telemetry source plus source-read tracing and metrics
+- `adapters/outbound/influxdb`: InfluxDB measurement repository plus persistence tracing and metrics
+- `platform`: operational concerns such as config, logging, health, and tracing
 - `cmd/integration-service`: composition root and process bootstrap
 
 This service does not expose query endpoints and does not own the API Gateway freshness cache.
@@ -57,9 +57,11 @@ internal/
       outbound/
         modbus/
           source.go
+          instrumentation.go
           decoder.go
           address_mapper.go
         influxdb/
+          instrumentation.go
           measurement_repository.go
           point_mapper.go
 
@@ -71,9 +73,6 @@ internal/
     health/
       handler.go
       readiness.go
-    metrics/
-      metrics.go
-      instrumentation.go
     tracing/
       tracing.go
 ```
@@ -86,7 +85,8 @@ internal/
 4. The application builds a domain `Measurement`.
 5. Invalid measurements are rejected and skipped.
 6. Valid measurements are written to InfluxDB.
-7. Metrics, readiness, and traces are emitted around the collection path.
+7. `main.go` registers Prometheus runtime and telemetry collectors, then exposes them through the health server.
+8. Metrics, readiness, and traces are emitted around the collection path.
 
 ## Configuration
 
