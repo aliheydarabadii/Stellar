@@ -3,9 +3,8 @@ package influxdb
 import (
 	"fmt"
 	"sort"
+	"stellar/internal/measurements"
 	"time"
-
-	"stellar/internal/measurements/domain"
 )
 
 type exactTimestampBucket struct {
@@ -19,7 +18,7 @@ type secondBucket struct {
 	byTimestamp map[time.Time]*exactTimestampBucket
 }
 
-func mapRecordsToPoints(records recordIterator) ([]domain.MeasurementPoint, error) {
+func mapRecordsToPoints(records recordIterator) ([]measurements.MeasurementPoint, error) {
 	grouped := make(map[time.Time]*secondBucket)
 
 	for records.Next() {
@@ -66,7 +65,7 @@ func mapRecordsToPoints(records recordIterator) ([]domain.MeasurementPoint, erro
 		return seconds[i].Before(seconds[j])
 	})
 
-	points := make([]domain.MeasurementPoint, 0, len(seconds))
+	points := make([]measurements.MeasurementPoint, 0, len(seconds))
 	for _, second := range seconds {
 		point, ok := latestCompletePointWithinSecond(second, grouped[second])
 		if ok {
@@ -77,7 +76,7 @@ func mapRecordsToPoints(records recordIterator) ([]domain.MeasurementPoint, erro
 	return points, nil
 }
 
-func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (domain.MeasurementPoint, bool) {
+func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (measurements.MeasurementPoint, bool) {
 	timestamps := make([]time.Time, 0, len(bucket.byTimestamp))
 	for timestamp := range bucket.byTimestamp {
 		timestamps = append(timestamps, timestamp)
@@ -92,14 +91,14 @@ func latestCompletePointWithinSecond(second time.Time, bucket *secondBucket) (do
 			continue
 		}
 
-		return domain.MeasurementPoint{
+		return measurements.MeasurementPoint{
 			Timestamp:   second,
 			Setpoint:    pointBucket.setpoint,
 			ActivePower: pointBucket.activePower,
 		}, true
 	}
 
-	return domain.MeasurementPoint{}, false
+	return measurements.MeasurementPoint{}, false
 }
 
 func toFloat64(value any) (float64, error) {

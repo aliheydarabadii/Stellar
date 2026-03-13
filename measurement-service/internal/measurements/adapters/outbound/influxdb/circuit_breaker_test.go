@@ -2,13 +2,12 @@ package influxdb
 
 import (
 	"errors"
+	getmeasurements "stellar/internal/measurements/application"
 	"testing"
 	"time"
 
 	gobreaker "github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/suite"
-
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
 type CircuitBreakerSuite struct {

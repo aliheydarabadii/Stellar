@@ -1,4 +1,4 @@
-package getmeasurements
+package application
 
 import (
 	"errors"

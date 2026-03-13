@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	getmeasurements "stellar/internal/measurements"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	measurementsv1 "stellar/api/proto"
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
 var _ measurementsv1.MeasurementServiceServer = (*Server)(nil)

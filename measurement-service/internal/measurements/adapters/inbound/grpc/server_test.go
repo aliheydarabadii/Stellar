@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"stellar/internal/measurements"
+	"stellar/internal/measurements/application"
 	"testing"
 	"time"
 
@@ -11,8 +13,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	measurementsv1 "stellar/api/proto"
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
-	"stellar/internal/measurements/domain"
 )
 
 type GRPCServerSuite struct {
@@ -27,7 +27,7 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsRequestAndResponse() {
 	from := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	to := from.Add(2 * time.Second)
 	readModel := &capturingReadModel{
-		points: []domain.MeasurementPoint{
+		points: []measurements.MeasurementPoint{
 			{
 				Timestamp:   from,
 				Setpoint:    11,
@@ -36,7 +36,7 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsRequestAndResponse() {
 		},
 	}
 
-	useCase, err := getmeasurements.NewUseCase(readModel)
+	useCase, err := application.NewUseCase(readModel)
 	s.Require().NoError(err)
 
 	server := NewServer(useCase)
@@ -60,7 +60,7 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsRequestAndResponse() {
 func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidInput() {
 	now := time.Now().UTC()
 
-	useCase, err := getmeasurements.NewUseCase(&capturingReadModel{})
+	useCase, err := application.NewUseCase(&capturingReadModel{})
 	s.Require().NoError(err)
 
 	server := NewServer(useCase)
@@ -78,7 +78,7 @@ func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidInput() {
 func (s *GRPCServerSuite) TestGetMeasurementsMapsReadModelUnavailable() {
 	now := time.Now().UTC()
 
-	useCase, err := getmeasurements.NewUseCase(&capturingReadModel{err: getmeasurements.ErrReadModelUnavailable})
+	useCase, err := application.NewUseCase(&capturingReadModel{err: application.ErrReadModelUnavailable})
 	s.Require().NoError(err)
 
 	server := NewServer(useCase)
@@ -94,7 +94,7 @@ func (s *GRPCServerSuite) TestGetMeasurementsMapsReadModelUnavailable() {
 }
 
 func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidRequestShape() {
-	useCase, err := getmeasurements.NewUseCase(&capturingReadModel{})
+	useCase, err := application.NewUseCase(&capturingReadModel{})
 	s.Require().NoError(err)
 
 	server := NewServer(useCase)
@@ -148,7 +148,7 @@ func (s *GRPCServerSuite) TestGetMeasurementsRejectsInvalidRequestShape() {
 func (s *GRPCServerSuite) TestGetMeasurementsRejectsRangeLargerThanConfiguredLimit() {
 	now := time.Now().UTC().Truncate(time.Second)
 
-	useCase, err := getmeasurements.NewUseCaseWithConfig(&capturingReadModel{}, getmeasurements.Config{
+	useCase, err := application.NewUseCaseWithConfig(&capturingReadModel{}, application.Config{
 		MaxQueryRange: 15 * time.Minute,
 	})
 	s.Require().NoError(err)
@@ -169,11 +169,11 @@ type capturingReadModel struct {
 	assetID string
 	from    time.Time
 	to      time.Time
-	points  []domain.MeasurementPoint
+	points  []measurements.MeasurementPoint
 	err     error
 }
 
-func (r *capturingReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]domain.MeasurementPoint, error) {
+func (r *capturingReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]measurements.MeasurementPoint, error) {
 	r.assetID = assetID
 	r.from = from
 	r.to = to

@@ -3,13 +3,12 @@ package influxdb
 import (
 	"context"
 	"errors"
+	"stellar/internal/measurements"
+	getmeasurements "stellar/internal/measurements/application"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
-
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
-	"stellar/internal/measurements/domain"
 )
 
 type ReadModelSuite struct {
@@ -35,7 +34,7 @@ func (s *ReadModelSuite) TestGetMeasurementsMapsInfluxRows() {
 	got, err := model.GetMeasurements(context.Background(), "asset-1", base.Add(-time.Minute), base.Add(time.Minute))
 	s.Require().NoError(err)
 
-	want := []domain.MeasurementPoint{
+	want := []measurements.MeasurementPoint{
 		{
 			Timestamp:   base.Truncate(time.Second),
 			Setpoint:    10,
@@ -84,7 +83,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 	testCases := []struct {
 		name    string
 		records []influxRecord
-		want    []domain.MeasurementPoint
+		want    []measurements.MeasurementPoint
 	}{
 		{
 			name: "later complete point wins",
@@ -94,7 +93,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 13.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
 			},
-			want: []domain.MeasurementPoint{
+			want: []measurements.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    13.0,
@@ -109,7 +108,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 13.0},
 			},
-			want: []domain.MeasurementPoint{
+			want: []measurements.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    10.0,
@@ -125,7 +124,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(700 * time.Millisecond), Field: "setpoint", Value: 14.0},
 				{Time: base.Add(100 * time.Millisecond), Field: "active_power", Value: 9.0},
 			},
-			want: []domain.MeasurementPoint{
+			want: []measurements.MeasurementPoint{
 				{
 					Timestamp:   base,
 					Setpoint:    10.0,
@@ -139,7 +138,7 @@ func (s *ReadModelSuite) TestGetMeasurementsSelectsLatestCompletePointWithinSeco
 				{Time: base.Add(100 * time.Millisecond), Field: "setpoint", Value: 10.0},
 				{Time: base.Add(700 * time.Millisecond), Field: "active_power", Value: 12.5},
 			},
-			want: []domain.MeasurementPoint{},
+			want: []measurements.MeasurementPoint{},
 		},
 	}
 

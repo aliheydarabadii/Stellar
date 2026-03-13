@@ -2,11 +2,10 @@ package influxdb
 
 import (
 	"errors"
+	getmeasurements "stellar/internal/measurements/application"
 	"time"
 
 	"github.com/sony/gobreaker/v2"
-
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
 )
 
 var ErrCircuitOpen = gobreaker.ErrOpenState

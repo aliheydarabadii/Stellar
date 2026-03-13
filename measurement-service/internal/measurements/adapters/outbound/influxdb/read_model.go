@@ -4,18 +4,17 @@ package influxdb
 import (
 	"context"
 	"fmt"
+	"stellar/internal/measurements"
+	getmeasurements "stellar/internal/measurements/application"
 	"time"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	influxapi "github.com/influxdata/influxdb-client-go/v2/api"
-
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
-	"stellar/internal/measurements/domain"
 )
 
 const measurementName = "asset_measurements"
 
-var _ getmeasurements.MeasurementsReadModel = (*ReadModel)(nil)
+var _ measurements.MeasurementsReadModel = (*ReadModel)(nil)
 
 type ReadModel struct {
 	bucket  string
@@ -51,14 +50,14 @@ func NewReadModel(client influxdb2.Client, org, bucket string, timeout time.Dura
 	}
 }
 
-func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) ([]domain.MeasurementPoint, error) {
+func (r *ReadModel) GetMeasurements(ctx context.Context, assetID string, from, to time.Time) ([]measurements.MeasurementPoint, error) {
 	if r.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.timeout)
 		defer cancel()
 	}
 
-	loadMeasurements := func() ([]domain.MeasurementPoint, error) {
+	loadMeasurements := func() ([]measurements.MeasurementPoint, error) {
 		records, err := r.query.Query(ctx, buildMeasurementsQuery(r.bucket, assetID, from, to))
 		if err != nil {
 			return nil, fmt.Errorf("%w: query influxdb: %w", getmeasurements.ErrReadModelUnavailable, err)

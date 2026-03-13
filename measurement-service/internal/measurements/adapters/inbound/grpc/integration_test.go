@@ -5,6 +5,7 @@ package grpc
 import (
 	"context"
 	"net"
+	getmeasurements "stellar/internal/measurements/application"
 	"testing"
 	"time"
 
@@ -18,7 +19,6 @@ import (
 
 	measurementsv1 "stellar/api/proto"
 	"stellar/internal/measurements/adapters/outbound/influxdb"
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
 	"stellar/internal/testsupport"
 )
 

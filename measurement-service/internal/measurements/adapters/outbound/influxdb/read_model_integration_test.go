@@ -4,12 +4,12 @@ package influxdb
 
 import (
 	"context"
+	"stellar/internal/measurements"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
-	"stellar/internal/measurements/domain"
 	"stellar/internal/testsupport"
 )
 
@@ -35,7 +35,7 @@ func (s *ReadModelIntegrationSuite) TestGetMeasurements() {
 	got, err := readModel.GetMeasurements(ctx, "asset-1", base, base.Add(4*time.Second+500*time.Millisecond))
 	s.Require().NoError(err)
 
-	want := []domain.MeasurementPoint{
+	want := []measurements.MeasurementPoint{
 		{
 			Timestamp:   base,
 			Setpoint:    10,
@@ -75,7 +75,7 @@ func (s *ReadModelIntegrationSuite) TestAppliesTimeRangeAndAssetFiltering() {
 	got, err := readModel.GetMeasurements(ctx, "asset-1", base.Add(time.Second), base.Add(2*time.Second+900*time.Millisecond))
 	s.Require().NoError(err)
 
-	want := []domain.MeasurementPoint{
+	want := []measurements.MeasurementPoint{
 		{
 			Timestamp:   base.Add(time.Second),
 			Setpoint:    20,
@@ -91,7 +91,7 @@ func (s *ReadModelIntegrationSuite) TestAppliesTimeRangeAndAssetFiltering() {
 	s.assertMeasurementSeries(got, want)
 }
 
-func (s *ReadModelIntegrationSuite) assertMeasurementSeries(got, want []domain.MeasurementPoint) {
+func (s *ReadModelIntegrationSuite) assertMeasurementSeries(got, want []measurements.MeasurementPoint) {
 	s.Require().Len(got, len(want))
 
 	for i := range got {

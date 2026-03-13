@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	getmeasurements "stellar/internal/measurements/application"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -18,7 +19,6 @@ import (
 
 	grpcadapter "stellar/internal/measurements/adapters/inbound/grpc"
 	"stellar/internal/measurements/adapters/outbound/influxdb"
-	getmeasurements "stellar/internal/measurements/application/get_measurements"
 	"stellar/internal/platform/config"
 	"stellar/internal/platform/health"
 	"stellar/internal/platform/logging"

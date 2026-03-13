@@ -1,14 +1,13 @@
-package getmeasurements
+package application
 
 import (
 	"context"
 	"errors"
+	"stellar/internal/measurements"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
-
-	"stellar/internal/measurements/domain"
 )
 
 type UseCaseSuite struct {
@@ -110,7 +109,7 @@ func (s *UseCaseSuite) TestHandleAllowsRangeAtConfiguredLimit() {
 func (s *UseCaseSuite) TestHandleReturnsPoints() {
 	now := time.Now().In(time.FixedZone("offset", 2*60*60)).Truncate(time.Second)
 	readModel := &fakeMeasurementsReadModel{
-		points: []domain.MeasurementPoint{
+		points: []measurements.MeasurementPoint{
 			{
 				Timestamp:   now.UTC(),
 				Setpoint:    10,
@@ -158,11 +157,11 @@ type fakeMeasurementsReadModel struct {
 	assetID string
 	from    time.Time
 	to      time.Time
-	points  []domain.MeasurementPoint
+	points  []measurements.MeasurementPoint
 	err     error
 }
 
-func (f *fakeMeasurementsReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]domain.MeasurementPoint, error) {
+func (f *fakeMeasurementsReadModel) GetMeasurements(_ context.Context, assetID string, from, to time.Time) ([]measurements.MeasurementPoint, error) {
 	f.assetID = assetID
 	f.from = from
 	f.to = to
